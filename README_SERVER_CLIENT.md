@@ -83,16 +83,6 @@ pip install -e ".[torch,metrics]" --no-build-isolation
 bash start_vllm_server.sh
 ```
 
-또는 직접 LlamaFactory 명령어로:
-
-```bash
-llamafactory-cli api \
-    --model_name_or_path Qwen/Qwen2.5-VL-3B-Instruct \
-    --adapter_name_or_path saves/qwen2_5vl-3b/lora/sft \
-    --template qwen2_vl \
-    --api_port 8000
-```
-
 ### 2. 서버 실행 확인
 
 서버가 접근 가능한지 확인:
@@ -103,7 +93,34 @@ curl http://localhost:8000/health
 
 ## 클라이언트 사용법
 
-### 기본 사용법
+### CLI 배치 처리 스크립트
+
+가장 간단한 사용법은 배치 처리 스크립트를 사용하는 것입니다:
+
+```bash
+# 기본 사용법
+python run_batch_xml_pipeline.py \
+    --api_endpoint http://211.47.48.147:8000/generate \
+    --enable_realtime_prediction
+
+# 추가 옵션과 함께
+python run_batch_xml_pipeline.py \
+    --api_endpoint http://211.47.48.147:8000/generate \
+    --enable_realtime_prediction \
+    --project_name "your-wandb-project" \
+    --table_name "layout_results"
+```
+
+#### CLI 옵션 설명
+
+- `--api_endpoint`: FastAPI 서버의 엔드포인트 URL
+- `--enable_realtime_prediction`: 실시간 예측 활성화
+- `--project_name`: WandB 프로젝트 이름 (선택사항)
+- `--table_name`: WandB 테이블 이름 (선택사항)
+
+### 프로그래밍 방식 사용법
+
+#### 기본 사용법
 
 ```python
 from integrated_pipeline import IntegratedStructuredContentPipeline
@@ -127,7 +144,7 @@ result = pipeline.process_xml_and_image(
 pipeline.save_to_wandb([result])
 ```
 
-### 배치 처리
+#### 배치 처리
 
 ```python
 # 여러 파일 처리
