@@ -184,5 +184,5 @@ czgz
 
 data/mllm_dataset.json
 data/mllm_dataset_filtered.json
-
+saves/qwen2_5vl-3b/lora/test/
 test.ipynb
