@@ -13,11 +13,12 @@
 # limitations under the License.
 
 from llamafactory.train.tuner import run_exp  # use absolute import
-
+from setproctitle import *
+setproctitle("MIRIDIH-JJS")
 
 def launch():
-    run_exp()
 
+    run_exp()
 
 if __name__ == "__main__":
     launch()

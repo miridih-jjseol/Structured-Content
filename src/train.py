@@ -13,9 +13,13 @@
 # limitations under the License.
 
 from llamafactory.train.tuner import run_exp
+from setproctitle import *
+
 
 
 def main():
+    setproctitle("MIRIDIH-JJS")
+    
     run_exp()
 
 

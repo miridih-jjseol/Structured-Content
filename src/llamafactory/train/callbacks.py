@@ -353,7 +353,7 @@ class ReporterCallback(TrainerCallback):
         self.data_args = data_args
         self.finetuning_args = finetuning_args
         self.generating_args = generating_args
-        os.environ["WANDB_PROJECT"] = os.getenv("WANDB_PROJECT", "llamafactory")
+        os.environ["WANDB_PROJECT"] = os.getenv("WANDB_PROJECT", "MORDOR-structured-output-training-jjseol")
 
     @override
     def on_train_begin(self, args: "TrainingArguments", state: "TrainerState", control: "TrainerControl", **kwargs):

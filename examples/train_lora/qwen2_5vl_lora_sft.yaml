@@ -22,13 +22,14 @@ preprocessing_num_workers: 16
 dataloader_num_workers: 4
 
 ### output
-output_dir: saves/qwen2_5vl-3b/lora/sft
+output_dir: saves/qwen2_5vl-3b/lora/test
 logging_steps: 10
 save_steps: 1500
 plot_loss: true
 overwrite_output_dir: true
 save_only_model: false
-report_to: none  # choices: [none, wandb, tensorboard, swanlab, mlflow]
+report_to: wandb
+run_name: test_run
 
 ### train
 per_device_train_batch_size: 2
@@ -41,8 +42,9 @@ bf16: true
 ddp_timeout: 180000000
 resume_from_checkpoint: null
 
+
 ### eval
-#val_size: 0.01
-#per_device_eval_batch_size: 1
-#eval_strategy: steps
-#eval_steps: 500
+eval_dataset: mllm_eval_dataset
+per_device_eval_batch_size: 1
+eval_strategy: steps
+eval_steps: 100

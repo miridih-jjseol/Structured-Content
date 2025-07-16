@@ -13,9 +13,12 @@ from PIL import Image, ImageDraw, ImageFont
 import base64
 import wandb
 
-def generate_color_palette(num_colors=6):
+def generate_color_palette(num_colors=12):
     # Base colors with high saturation and varying hue
     base_colors = [
+        (230, 25, 75),   # Red
+        (60, 180, 75),   # Green
+        (0, 130, 200),   # Blue
         (145, 30, 180),  # Purple
         (70, 240, 240),  # Cyan
         (240, 50, 230),  # Magenta
@@ -24,9 +27,6 @@ def generate_color_palette(num_colors=6):
         (0, 128, 128),   # Teal
         (230, 190, 255), # Lavender
         (170, 110, 40),  # Brown
-        (230, 25, 75),   # Red
-        (60, 180, 75),   # Green
-        (0, 130, 200),   # Blue
         (245, 130, 48),  # Orange
     ]
     return base_colors[:num_colors]
@@ -53,6 +53,20 @@ def draw_group_boxes(img, group_dict, element_dict):
         x_coords = []
         y_coords = []
         
+        # Check if FrameItem exists in this group (recursively)
+        def has_frameitem_in_group(data):
+            for element_id, value in data.items():
+                if isinstance(value, dict):
+                    if has_frameitem_in_group(value):
+                        return True
+                elif element_id in element_dict:
+                    element = element_dict[element_id]
+                    if element.get('tag') == 'FrameItem':
+                        return True
+            return False
+        
+        frameitem_exists = has_frameitem_in_group(group_data)
+        
         for element_id, value in group_data.items():
             if isinstance(value, dict):
                 # Recursive call for nested groups
@@ -61,6 +75,22 @@ def draw_group_boxes(img, group_dict, element_dict):
                 y_coords.extend(sub_y)
             elif element_id in element_dict:
                 element = element_dict[element_id]
+                
+                # Skip elements with priority 0 if they are not TEXT/SIMPLE_TEXT/FrameItem and FrameItem exists
+                if frameitem_exists:
+                    element_tag = element.get('tag', '')
+                    element_priority = element.get('priority', 'Not_Exists')
+                    
+                    # Convert priority to int for comparison, default to 1 if not valid
+                    try:
+                        priority_int = int(element_priority) if element_priority != 'Not_Exists' else 1
+                    except (ValueError, TypeError):
+                        priority_int = 1
+                    
+                    # Skip if not TEXT/SIMPLE_TEXT/FrameItem and priority is 0
+                    if element_tag not in ['TEXT', 'SIMPLE_TEXT', 'FrameItem'] and priority_int == 0:
+                        continue
+                
                 x_coords.extend([element['x'], element['x'] + element['w']])
                 y_coords.extend([element['y'], element['y'] + element['h']])
                 
@@ -93,25 +123,28 @@ def draw_group_boxes(img, group_dict, element_dict):
             # Use parent's color for subgroups
             color = parent_color
             # Subgroups get progressively more opaque
-            opacity = 25 +(depth * 40)#min(255, 50 + (depth * 40))
+            opacity = min(255, 50 + (depth * 40))#10#min(128,20+(depth * 10))#min(255, 50 + (depth * 40))
             display_name = group_name
-            if depth>1:
+            if depth>=1:
                 display_name = "Sub_"*(depth-1)+display_name
         # Create color with opacity
-        fill_color = (*color, opacity)
-        
+        fill_color = (*color, 100)
+
         # Draw filled rectangle
-        draw_overlay.rectangle(
-            [min_x, min_y, max_x, max_y],
-            fill=fill_color
-        )
+        #if depth==0:
+        #    draw_overlay.rectangle(
+        #    [min_x, min_y, max_x, max_y],
+        #    fill=fill_color
+        #)
         
         # Draw border with semi-transparency
-        border_opacity = min(255, opacity + 50)  # Border slightly more visible than fill
+        
+        border_opacity = min(100, opacity + 50)  # Border slightly more visible than fill
         draw_overlay.rectangle(
             [min_x, min_y, max_x, max_y],
-            outline=(0,0,0,255),#(*color, 255),  # Border color matches group color
-            width=2
+            #fill=fill_color
+            outline= fill_color,#(0, 0, 0, 255),  # Border color matches group color
+            width=7
         )
         
         # Add group name
@@ -164,9 +197,11 @@ def draw_group_boxes(img, group_dict, element_dict):
     # Process each parent group
     parent_groups = [i for i in list(group_dict.keys()) if i.startswith("Parent")]
     # parent group visualization
+    idx =0
     for idx, parent_group in enumerate(parent_groups, 1):
         parent_color = colors[idx]
         draw_group(draw_overlay, group_dict[parent_group], parent_group, parent_number=idx,parent_color=parent_color)
+    
     p_idx = idx
     a_groups = [i for i in list(group_dict.keys()) if i.startswith("a group")]
     # a group visualization
@@ -190,8 +225,9 @@ def draw_element_boxes(img, element_dict):
     
     # Different colors for different element types
     color_map = {
-        'SIMPLE_TEXT': (255, 0, 0, 50),    # Red for text
+        'TEXT': (255, 0, 0,100),    # Red for text
         'LineShapeItem': (0, 0, 255, 50),  # Blue for lines
+        'GENERALSVG': (70, 240, 240, 50),  # Cyan
     }
     
     # Try to load a font
@@ -209,19 +245,21 @@ def draw_element_boxes(img, element_dict):
         tag = element['tag']
         
         # Get color based on element type
+        if type(tag) == list:
+            tag = tag[0]
         color = color_map.get(tag, (0, 255, 0, 50))  # Default to green if type unknown
         
         # Draw filled rectangle
-        draw_overlay.rectangle(
-            [x, y, x + w, y + h],
-            fill=color
-        )
+        #draw_overlay.rectangle(
+        #    [x, y, x + w, y + h],
+        #    fill=color
+        #)
         
         # Draw border
         draw_overlay.rectangle(
             [x, y, x + w, y + h],
             outline=(0, 0, 0, 255),  # Black border
-            width=1
+            width=5
         )
         
         # Prepare label text
@@ -374,7 +412,6 @@ def get_element_info_to_xml(xml_string):
     tag_matches = re.findall(r'<(\w+)[^>]*\bTbpeId="([^"]+)"', xml_string)
     if not tag_matches:
         return None
-
     tags = ["PHOTO" if tag == "STICKER" else "FrameItem" if tag == "SVGIMAGEFRAME" else tag for tag, _ in tag_matches]
     tbpe_ids = [tbpe_id for _, tbpe_id in tag_matches]
     is_texts = ['TRUE' if tag in ('SIMPLE_TEXT', 'TEXT') else 'FALSE' for tag in tags]

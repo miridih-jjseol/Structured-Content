@@ -53,7 +53,7 @@
     }
   },
   "mllm_eval_dataset": {
-    "file_name": "mordor_info_dataset.json",
+    "file_name": "mllm_eval_dataset.json",
     "formatting": "sharegpt",
     "columns": {
       "messages": "messages",
