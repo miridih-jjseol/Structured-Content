@@ -50,7 +50,8 @@ def process_with_model_outputs(
     matching_pairs: List[Dict[str, Any]], 
     model_outputs: Optional[Dict[str, Image.Image]] = None,
     save_to_wandb: bool = True,
-    limit: Optional[int] = None
+    limit: Optional[int] = None,
+    table_name: str = "xml_model_results"
 ) -> List[Dict[str, Any]]:
     """
     모델 출력과 함께 XML들을 배치 처리합니다.
@@ -66,7 +67,7 @@ def process_with_model_outputs(
     
     pipeline = IntegratedStructuredContentPipeline(
         project_name="MORDOR-structured-output-validation-jyjang",
-        table_name="xml_model_results"
+        table_name=table_name
     )
     
     results = []
@@ -121,7 +122,7 @@ def main():
     parser = argparse.ArgumentParser(description='Batch process XML files and thumbnail images')
     parser.add_argument('--xml_dir', default='/data/shared/jjseol/data/Mordor_validation_66/xml_sheets/', help='XML files directory')
     parser.add_argument('--thumbnail_dir', default='/data/shared/jjseol/data/Mordor_validation_66/thumbnails/', help='Thumbnail images directory')
-    parser.add_argument('--model_images_dir', default=None, help='Directory containing model predicted images (new_img from test_clean_code_pipeline.ipynb)')
+    parser.add_argument('--table_name', default='xml_batch_results', help='Table name for wandb')
     parser.add_argument('--enable_realtime_prediction', action='store_true', help='Enable real-time LLM prediction to generate new_img')
     parser.add_argument('--limit', type=int, default=None, help='Limit number of files to process')
     parser.add_argument('--no_wandb', action='store_true', help='Disable wandb logging')
@@ -176,7 +177,7 @@ def main():
     # 파이프라인 초기화
     pipeline = IntegratedStructuredContentPipeline(
         project_name="MORDOR-structured-output-validation-jyjang",
-        table_name="xml_batch_results",
+        table_name=args.table_name,
         enable_realtime_prediction=args.enable_realtime_prediction,
         api_endpoint=args.api_endpoint,
         api_model_name=args.api_model_name,
@@ -324,6 +325,7 @@ if __name__ == "__main__":
         print("  python run_batch_xml_pipeline.py --api_model_name default # Set model name")
         print("  python run_batch_xml_pipeline.py --api_key YOUR_API_KEY # Set API key")
         print("  python run_batch_xml_pipeline.py --test             # Run test with first file")
+        print("  python run_batch_xml_pipeline.py --table_name xml_batch_results # Set table name for wandb")
         print()
         print("Model images directory should contain PNG files named {template_id}.png")
         print("(Generated from test_clean_code_pipeline.ipynb as new_img)")
