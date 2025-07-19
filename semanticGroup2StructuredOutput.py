@@ -564,7 +564,7 @@ def semanticGroup2LayoutFunction(
     
     # Parent Group과 a group을 찾아서 처리
     for parent_group_key in semantic_group.keys():
-        if (parent_group_key.startswith("Parent Group") or parent_group_key == "a group") and isinstance(semantic_group[parent_group_key], dict):
+        if (parent_group_key.startswith("Parent Group") or parent_group_key.startswith("a group")) and isinstance(semantic_group[parent_group_key], dict):
             parent_group = semantic_group[parent_group_key]
             
             # 1단계: Parent Group 전체를 재귀적으로 처리
@@ -654,7 +654,7 @@ def semanticGroup2LayoutFunction(
         
         # Parent Groups과 a group의 대략적인 위치 추가
         for parent_group_key in semantic_group.keys():
-            if (parent_group_key.startswith("Parent Group") or parent_group_key == "a group") and isinstance(semantic_group[parent_group_key], dict):
+            if (parent_group_key.startswith("Parent Group") or parent_group_key.startswith("a group")) and isinstance(semantic_group[parent_group_key], dict):
                 # Parent Group 내 모든 요소들의 경계 계산
                 all_parent_metadata = []
                 parent_group = semantic_group[parent_group_key]
@@ -698,7 +698,7 @@ def semanticGroup2LayoutFunction(
             # 여러 Parent Group들과 a group의 위치 정보 수집
             parent_group_positions = []
             for parent_group_key in semantic_group.keys():
-                if (parent_group_key.startswith("Parent Group") or parent_group_key == "a group") and isinstance(semantic_group[parent_group_key], dict):
+                if (parent_group_key.startswith("Parent Group") or parent_group_key.startswith("a group")) and isinstance(semantic_group[parent_group_key], dict):
                     # Parent Group 내 모든 요소들의 경계 계산
                     all_parent_metadata = []
                     parent_group = semantic_group[parent_group_key]
