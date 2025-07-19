@@ -142,11 +142,6 @@ def main():
         print(f"Error: Thumbnail directory not found: {args.thumbnail_dir}")
         return
     
-    # 모델 이미지 디렉터리 확인
-    model_images_available = False
-    if args.model_images_dir and os.path.exists(args.model_images_dir):
-        model_images_available = True
-        print(f"Model images directory: {args.model_images_dir}")
     
     # 매칭되는 파일들 찾기
     matching_pairs = find_matching_files(args.xml_dir, args.thumbnail_dir)
@@ -169,7 +164,6 @@ def main():
     print(f"Found {len(matching_pairs)} matching XML and thumbnail pairs")
     print(f"XML directory: {args.xml_dir}")
     print(f"Thumbnail directory: {args.thumbnail_dir}")
-    print(f"Model images available: {model_images_available}")
     print(f"Real-time prediction enabled: {args.enable_realtime_prediction}")
     print(f"Save to wandb: {not args.no_wandb}")
     print("=" * 60)
@@ -194,14 +188,6 @@ def main():
         try:
             # 모델 예측 이미지 로드 (new_img)
             model_predicted_image = None
-            if model_images_available:
-                model_image_path = os.path.join(args.model_images_dir, f"{pair['template_id']}.png")
-                if os.path.exists(model_image_path):
-                    try:
-                        model_predicted_image = Image.open(model_image_path)
-                        print(f"Loaded model image: {model_image_path}")
-                    except Exception as e:
-                        print(f"Error loading model image {model_image_path}: {e}")
             
             result = pipeline.process_xml_and_image(
                 xml_file_path=pair['xml_file'],
@@ -319,7 +305,6 @@ if __name__ == "__main__":
         print("  python run_batch_xml_pipeline.py --limit 5          # Process first 5 files")
         print("  python run_batch_xml_pipeline.py --template_id 21283 # Process specific ID")
         print("  python run_batch_xml_pipeline.py --no_wandb         # Don't save to wandb")
-        print("  python run_batch_xml_pipeline.py --model_images_dir /path/to/model/images # Use model predicted images")
         print("  python run_batch_xml_pipeline.py --enable_realtime_prediction # Enable real-time LLM prediction")
         print("  python run_batch_xml_pipeline.py --api_endpoint http://211.47.48.147:8000/generate # Set vLLM API endpoint")
         print("  python run_batch_xml_pipeline.py --api_model_name default # Set model name")
