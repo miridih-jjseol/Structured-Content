@@ -1,3 +1,8 @@
+#!/usr/bin/env python3
+"""
+vLLM Inference Server with OpenAI-compatible API
+"""
+
 import os
 import sys
 from fastapi import FastAPI, HTTPException
@@ -87,21 +92,49 @@ async def generate_text(request: GenerateRequest):
         else:
             sampling_params = default_sampling_params
         
-        # Prepare input
+        # Prepare input for vLLM
         if request.prompt_token_ids is not None:
-            # Use token IDs with optional multi-modal data
+            # For multimodal with token IDs, we need to convert images to PIL format
+            from PIL import Image
+            import io
+            
+            # Convert base64 images back to PIL Images
+            processed_multi_modal_data = {}
+            if request.multi_modal_data and "image" in request.multi_modal_data:
+                processed_images = []
+                for img_data in request.multi_modal_data["image"]:
+                    if isinstance(img_data, str):
+                        # Base64 string - decode to PIL Image
+                        try:
+                            img_bytes = base64.b64decode(img_data)
+                            pil_image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+                            processed_images.append(pil_image)
+                        except Exception as e:
+                            print(f"Error processing image: {e}")
+                            continue
+                    else:
+                        # Already a PIL Image or other format
+                        processed_images.append(img_data)
+                
+                processed_multi_modal_data["image"] = processed_images
+            
+            # Create input data structure for vLLM
             input_data = {
                 "prompt_token_ids": request.prompt_token_ids,
-                "multi_modal_data": request.multi_modal_data or {}
+                "multi_modal_data": processed_multi_modal_data
             }
+            
         elif request.prompt is not None:
-            # Use text prompt
+            # Use text prompt - simpler case
             input_data = request.prompt
         else:
             raise HTTPException(status_code=400, detail="Either prompt or prompt_token_ids must be provided")
         
         # Select LoRA request
         current_lora_request = lora_request if request.use_lora else None
+        
+        print(f"Generating with input type: {'token_ids' if request.prompt_token_ids else 'text'}")
+        print(f"Using LoRA: {current_lora_request is not None}")
         
         # Generate response
         result = llm.generate(
@@ -128,6 +161,9 @@ async def generate_text(request: GenerateRequest):
             raise HTTPException(status_code=500, detail="No output generated")
             
     except Exception as e:
+        import traceback
+        print(f"Generation error: {e}")
+        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
 
 @app.post("/generate_batch")

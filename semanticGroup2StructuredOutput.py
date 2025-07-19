@@ -562,9 +562,9 @@ def semanticGroup2LayoutFunction(
     # Parent Group들 처리
     parent_group_ids = []
     
-    # 모든 Parent Group을 찾아서 처리
+    # Parent Group과 a group을 찾아서 처리
     for parent_group_key in semantic_group.keys():
-        if parent_group_key.startswith("Parent Group") and isinstance(semantic_group[parent_group_key], dict):
+        if (parent_group_key.startswith("Parent Group") or parent_group_key == "a group") and isinstance(semantic_group[parent_group_key], dict):
             parent_group = semantic_group[parent_group_key]
             
             # 1단계: Parent Group 전체를 재귀적으로 처리
@@ -652,9 +652,9 @@ def semanticGroup2LayoutFunction(
             if elem_id in metadata_objects:
                 top_level_positions.append(metadata_objects[elem_id])
         
-        # Parent Groups의 대략적인 위치 추가
+        # Parent Groups과 a group의 대략적인 위치 추가
         for parent_group_key in semantic_group.keys():
-            if parent_group_key.startswith("Parent Group") and isinstance(semantic_group[parent_group_key], dict):
+            if (parent_group_key.startswith("Parent Group") or parent_group_key == "a group") and isinstance(semantic_group[parent_group_key], dict):
                 # Parent Group 내 모든 요소들의 경계 계산
                 all_parent_metadata = []
                 parent_group = semantic_group[parent_group_key]
@@ -695,10 +695,10 @@ def semanticGroup2LayoutFunction(
     elif parent_group_ids and not top_level_element_ids:
         # Parent Groups만 있는 경우
         if len(parent_group_ids) > 1:
-            # 여러 Parent Group들의 위치 정보 수집
+            # 여러 Parent Group들과 a group의 위치 정보 수집
             parent_group_positions = []
             for parent_group_key in semantic_group.keys():
-                if parent_group_key.startswith("Parent Group") and isinstance(semantic_group[parent_group_key], dict):
+                if (parent_group_key.startswith("Parent Group") or parent_group_key == "a group") and isinstance(semantic_group[parent_group_key], dict):
                     # Parent Group 내 모든 요소들의 경계 계산
                     all_parent_metadata = []
                     parent_group = semantic_group[parent_group_key]
