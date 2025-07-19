@@ -130,7 +130,7 @@ pipeline = IntegratedStructuredContentPipeline(
     project_name="your-wandb-project",
     table_name="layout_results",
     enable_realtime_prediction=True,
-    api_endpoint="http://localhost:8000/v1/chat/completions"
+    api_endpoint="http://localhost:8000/generate"
 )
 
 # XML과 이미지 처리
@@ -204,7 +204,7 @@ pipeline = IntegratedStructuredContentPipeline(
     project_name="MORDOR-structured-output-validation",
     table_name="layout_results",
     enable_realtime_prediction=True,
-    api_endpoint="http://your-server:8000/v1/chat/completions",
+    api_endpoint="http://your-server:8000/generate",
     api_model_name="default",
     api_key="your_api_key"  # 선택사항
 )
@@ -261,9 +261,139 @@ pipeline = IntegratedStructuredContentPipeline(
 
 FastAPI 서버는 다음 엔드포인트를 제공합니다:
 
-- `POST /v1/chat/completions`: 메인 추론 엔드포인트
+- `POST /generate`: 메인 추론 엔드포인트
+  - 단일 텍스트/이미지 입력에 대한 추론 수행
+  - `prompt` 또는 `prompt_token_ids` + `multi_modal_data` 지원
+  - LoRA 어댑터 사용 여부 선택 가능
+- `POST /generate_batch`: 배치 추론 엔드포인트  
+  - 여러 요청을 한 번에 처리
+  - 각 요청은 `/generate`와 동일한 형식
 - `GET /health`: 상태 확인 엔드포인트
-- `GET /v1/models`: 사용 가능한 모델 목록
+  - 서버 상태 및 모델 로드 여부 확인
+
+### API 파라미터 설명
+
+#### `/generate` 요청 파라미터
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---------|------|------|------|
+| `prompt` | string | 선택 | 텍스트 프롬프트 (prompt_token_ids와 배타적) |
+| `prompt_token_ids` | List[int] | 선택 | 토큰 ID 배열 (prompt와 배타적) |
+| `multi_modal_data` | object | 선택 | 멀티모달 데이터 (이미지 등) |
+| `multi_modal_data.image` | List[string] | 선택 | Base64 인코딩된 이미지 배열 |
+| `sampling_params` | object | 선택 | 샘플링 파라미터 |
+| `sampling_params.temperature` | float | 선택 | 생성 온도 (0.0~2.0, 기본값: 0.7) |
+| `sampling_params.top_p` | float | 선택 | Top-p 샘플링 (0.0~1.0, 기본값: 0.9) |
+| `sampling_params.max_tokens` | int | 선택 | 최대 생성 토큰 수 (기본값: 512) |
+| `sampling_params.stop` | List[string] | 선택 | 중단 문자열 배열 |
+| `use_lora` | boolean | 선택 | LoRA 어댑터 사용 여부 (기본값: true) |
+
+#### 응답 형식
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `generated_text` | string | 생성된 텍스트 |
+| `finish_reason` | string | 완료 사유 (stop, length 등) |
+| `prompt_tokens` | int | 입력 토큰 수 |
+| `completion_tokens` | int | 생성된 토큰 수 |
+
+### API 사용 예시
+
+#### 1. 서버 상태 확인
+
+```bash
+curl -X GET http://211.47.48.147:8000/health
+```
+
+**응답:**
+```json
+{
+  "status": "healthy",
+  "model_loaded": true
+}
+```
+
+#### 2. 텍스트 프롬프트로 추론
+
+```bash
+curl -X POST http://211.47.48.147:8000/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Analyze this layout and group elements semantically.",
+    "sampling_params": {
+      "temperature": 0.0,
+      "top_p": 1.0,
+      "max_tokens": 2048
+    },
+    "use_lora": true
+  }'
+```
+
+#### 3. 멀티모달 추론 (이미지 + 텍스트)
+
+```bash
+curl -X POST http://211.47.48.147:8000/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "<image>\nPlease group these elements: {\"element_1\": {\"x\": 100, \"y\": 200}}",
+    "multi_modal_data": {
+      "image": ["base64_encoded_image_string"]
+    },
+    "sampling_params": {
+      "temperature": 0.0,
+      "max_tokens": 2048
+    },
+    "use_lora": true
+  }'
+```
+
+#### 4. 토큰 ID 기반 추론
+
+```bash
+curl -X POST http://211.47.48.147:8000/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt_token_ids": [151644, 872, 198, 151645, 198],
+    "multi_modal_data": {
+      "image": ["base64_encoded_image_string"]
+    },
+    "sampling_params": {
+      "temperature": 0.0,
+      "max_tokens": 2048,
+      "stop": []
+    },
+    "use_lora": true
+  }'
+```
+
+#### 5. 배치 추론
+
+```bash
+curl -X POST http://211.47.48.147:8000/generate_batch \
+  -H "Content-Type: application/json" \
+  -d '[
+    {
+      "prompt": "First request",
+      "sampling_params": {"temperature": 0.0, "max_tokens": 1024},
+      "use_lora": true
+    },
+    {
+      "prompt": "Second request", 
+      "sampling_params": {"temperature": 0.0, "max_tokens": 1024},
+      "use_lora": true
+    }
+  ]'
+```
+
+**응답 형식:**
+```json
+{
+  "generated_text": "Generated response text here",
+  "finish_reason": "stop",
+  "prompt_tokens": 25,
+  "completion_tokens": 150
+}
+```
 
 ## 문제 해결
 
@@ -297,26 +427,6 @@ FastAPI 서버는 다음 엔드포인트를 제공합니다:
 - 서버 리소스 사용량 모니터링
 - 처리 속도가 중요한 경우 더 작은 이미지 사용
 
-## 고급 설정
-
-### 커스텀 모델 설정
-
-```bash
-# 다른 모델 사용
-llamafactory-cli api \
-    --model_name_or_path microsoft/Phi-3.5-vision-instruct \
-    --template phi \
-    --api_port 8000
-
-# vLLM 대신 HuggingFace 엔진 사용
-llamafactory-cli api \
-    --model_name_or_path Qwen/Qwen2.5-VL-3B-Instruct \
-    --adapter_name_or_path saves/qwen2_5vl-3b/lora/sft \
-    --template qwen2_vl \
-    --api_port 8000 \
-    --use_hf_engine
-```
-
 ### WandB 설정
 
 ```python
@@ -335,21 +445,6 @@ pipeline = IntegratedStructuredContentPipeline(
 
 `start_vllm_server.sh` 스크립트 예시:
 
-```bash
-#!/bin/bash
-# vLLM 서버 시작 스크립트
-
-echo "Starting vLLM server with Qwen2.5-VL model..."
-
-llamafactory-cli api \
-    --model_name_or_path Qwen/Qwen2.5-VL-3B-Instruct \
-    --adapter_name_or_path saves/qwen2_5vl-3b/lora/sft \
-    --template qwen2_vl \
-    --api_port 8000 \
-    --host 0.0.0.0
-
-echo "vLLM server started on port 8000"
-```
 
 ## 기여
 
