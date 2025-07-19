@@ -34,45 +34,18 @@ def generate_color_palette(num_colors=12):
 colors = generate_color_palette()
 
 def clean_and_parse_json(json_str):
-    """
-    Clean and parse JSON string with robust error handling.
-    Returns None if no valid JSON structure is found.
-    """
-    if not json_str or not isinstance(json_str, str):
-        print("Error: Empty or invalid input string")
-        return None
+    # Find the last closing brace of the JSON object
+    last_brace_index = json_str.rindex('}')
     
+    # Extract only the JSON part
+    clean_json = json_str[:last_brace_index + 1]
+    
+    # Parse the cleaned JSON string
     try:
-        # First, try to find the last closing brace
-        if '}' not in json_str:
-            print("Error: No closing brace found in string")
-            return None
-            
-        last_brace_index = json_str.rindex('}')
-        
-        # Extract only the JSON part
-        clean_json = json_str[:last_brace_index + 1]
-        
-        # Find the first opening brace to get a complete JSON object
-        if '{' not in clean_json:
-            print("Error: No opening brace found in string")
-            return None
-            
-        first_brace_index = clean_json.index('{')
-        clean_json = clean_json[first_brace_index:]
-        
-        # Parse the cleaned JSON string
         data = json.loads(clean_json)
         return data
-        
     except json.JSONDecodeError as e:
         print(f"Error parsing JSON: {e}")
-        return None
-    except ValueError as e:
-        print(f"Error finding braces in string: {e}")
-        return None
-    except Exception as e:
-        print(f"Unexpected error in clean_and_parse_json: {e}")
         return None
 
 def draw_group_boxes(img, group_dict, element_dict):
@@ -120,6 +93,17 @@ def draw_group_boxes(img, group_dict, element_dict):
                 
                 x_coords.extend([element['x'], element['x'] + element['w']])
                 y_coords.extend([element['y'], element['y'] + element['h']])
+            else:
+                # Check if it's a group reference in the main group_dict
+                if element_id in group_dict:
+                    # This is a reference to another group, get its bounds
+                    sub_x, sub_y = get_group_bounds(group_dict[element_id])
+                    x_coords.extend(sub_x)
+                    y_coords.extend(sub_y)
+                # else:
+                    # Only show warning for truly missing elements (not group references)
+                    # if not element_id.startswith('GROUP_'):
+                    #     print(f"Warning: Element '{element_id}' not found in element_dict or group_dict. Skipping...")
                 
         return x_coords, y_coords
 
@@ -233,7 +217,7 @@ def draw_group_boxes(img, group_dict, element_dict):
     a_groups = [i for i in list(group_dict.keys()) if i.startswith("a group")]
     # a group visualization
     for idx, a_group in enumerate(a_groups, 1):
-        a_color = colors[idx+p_idx]
+        a_color = colors[(idx+p_idx)%len(colors)]
         draw_group(draw_overlay, group_dict[a_group], a_group, parent_number=idx,parent_color=a_color)
 
     
@@ -506,8 +490,6 @@ def xml_to_mllm_converter(xml_path,img_path=None):
     # extract metadata from each element fragment
     for idx, elem_xml in enumerate(element_fragments, 1):
         elem_data = get_element_info_to_xml(elem_xml)
-        if elem_data is None:
-            continue  # Skip this element if we can't extract data
         tbpe_id = elem_data['tbpe_id']
         if type(tbpe_id) == list:
             tbpe_id = tbpe_id[0]
@@ -540,7 +522,8 @@ def xml_to_mllm_converter(xml_path,img_path=None):
     for tbpe_id, metadata in elements_metadata.items():
 
         if type(metadata['tag']) == list:
-            name = '_'.join(metadata['tag'])
+            # name = '_'.join(metadata['tag'])
+            name = metadata['tag'][0]
         elif type(metadata['tag']) == str:
             name = metadata['tag']
         else:

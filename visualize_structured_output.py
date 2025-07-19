@@ -457,6 +457,12 @@ class StructuredContentVisualizer:
         
         tag = metadata.get('tag', 'Unknown')
         
+        # tag가 list인 경우 첫 번째 element 사용
+        if isinstance(tag, list) and len(tag) > 0:
+            tag = tag[0]
+        elif isinstance(tag, list):
+            tag = 'Unknown'
+            
         color = self.layout_colors.get(tag, '#6b7280')
         
         # 요소 박스 그리기 (투명도 적용)
