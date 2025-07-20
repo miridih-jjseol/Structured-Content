@@ -261,11 +261,18 @@ class IntegratedStructuredContentPipeline:
                  enable_realtime_prediction: bool = False,
                  api_endpoint: str = "http://211.47.48.147:8000/v1/chat/completions",
                  api_model_name: str = "default",
-                 api_key: Optional[str] = None):
+                 api_key: Optional[str] = None,
+                 output_dir: Optional[str] = None):
         self.project_name = project_name
         self.table_name = table_name
         self.visualizer = StructuredContentVisualizer()
         self.enable_realtime_prediction = enable_realtime_prediction
+        self.output_dir = output_dir
+        
+        # Create output directory if specified
+        if self.output_dir:
+            os.makedirs(self.output_dir, exist_ok=True)
+            print(f"Output directory set to: {self.output_dir}")
         
         # API configuration
         self.api_endpoint_config = api_endpoint
@@ -1039,6 +1046,15 @@ class IntegratedStructuredContentPipeline:
                 try:
                     image = Image.open(BytesIO(image_bytes))
                     structured_output_wandb = wandb.Image(image)
+                    # Save realtime_new_img to file if output_dir is specified
+                    if self.output_dir:
+                        try:
+                            output_filename = f"{template_id}.png"
+                            output_path = os.path.join(self.output_dir, output_filename)
+                            image.save(output_path)
+                            print(f"Saved realtime_new_img to: {output_path}")
+                        except Exception as e:
+                            print(f"Error saving realtime_new_img: {e}")
                     print("Generated layout functions visualization image (MORDOR format)")
                 except Exception as e:
                     print(f"Error creating visualization image: {e}")

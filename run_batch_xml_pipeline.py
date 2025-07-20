@@ -130,6 +130,7 @@ def main():
     parser.add_argument('--api_endpoint', default='http://211.47.48.147:8000/generate', help='vLLM API endpoint URL')
     parser.add_argument('--api_model_name', default='default', help='Model name for API requests')
     parser.add_argument('--api_key', default=None, help='API key for authentication (optional)')
+    parser.add_argument('--output_dir', default=None, help='Output directory for realtime new_img')
     
     args = parser.parse_args()
     
@@ -175,10 +176,11 @@ def main():
         enable_realtime_prediction=args.enable_realtime_prediction,
         api_endpoint=args.api_endpoint,
         api_model_name=args.api_model_name,
-        api_key=args.api_key
+        api_key=args.api_key,
+        output_dir=args.output_dir
     )
     
-    # 배치 처리
+    # 배치 처리E
     results = []
     failed_count = 0
     
@@ -311,6 +313,7 @@ if __name__ == "__main__":
         print("  python run_batch_xml_pipeline.py --api_key YOUR_API_KEY # Set API key")
         print("  python run_batch_xml_pipeline.py --test             # Run test with first file")
         print("  python run_batch_xml_pipeline.py --table_name xml_batch_results # Set table name for wandb")
+        print("  python run_batch_xml_pipeline.py --output_dir /data/shared/jjseol/data/Mordor_validation_66/new_img # Set output directory")
         print()
         print("Model images directory should contain PNG files named {template_id}.png")
         print("(Generated from test_clean_code_pipeline.ipynb as new_img)")

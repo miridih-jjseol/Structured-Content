@@ -10,6 +10,7 @@ import os
 import glob
 from PIL import Image
 from semanticGroup2StructuredOutput import semanticGroup2StructuredOutput, semanticGroup2LayoutFunction
+import platform
 
 class StructuredContentVisualizer:
     def __init__(self, width=1920, height=1080, scale_factor=0.4):
@@ -17,8 +18,8 @@ class StructuredContentVisualizer:
         구조화된 콘텐츠를 시각화하는 클래스
         
         Args:
-            width: 캔버스 너비
-            height: 캔버스 높이
+            width: 캔버스 너비 (기본값, 자동 조정 가능)
+            height: 캔버스 높이 (기본값, 자동 조정 가능)
             scale_factor: 스케일링 팩터
         """
         self.width = width
@@ -28,64 +29,111 @@ class StructuredContentVisualizer:
         self.ax = None
         
         # 한글 폰트 설정
-        self._setup_korean_font()
+        plt.rcParams['font.family'] = ['DejaVu Sans', 'SimHei', 'Malgun Gothic', 'Apple Gothic']
+        if platform.system() == 'Windows':
+            plt.rcParams['font.family'] = ['Malgun Gothic', 'DejaVu Sans']
+        elif platform.system() == 'Darwin':  # macOS
+            plt.rcParams['font.family'] = ['Apple Gothic', 'DejaVu Sans']
+        else:  # Linux
+            plt.rcParams['font.family'] = ['DejaVu Sans', 'Liberation Sans']
+            
+        # 마이너스 기호 깨짐 방지
+        plt.rcParams['axes.unicode_minus'] = False
         
-        # 레이아웃 타입별 색상 팔레트 (더 선명하고 투명도 적용하기 좋은 색상)
+        # 레이아웃 타입별 색상
         self.layout_colors = {
-            'VStack': '#3b82f6',
-            'HStack': '#10b981', 
-            'ZStack': '#f59e0b',
-            'Group': '#8b5cf6',
-            'Graph': '#ef4444',
-            'Text': '#1f2937',
-            'SVG': '#059669',
-            'Image': '#dc2626',
-            'Chart': '#7c3aed',
-            'Table': '#0891b2',
-            'Video': '#ea580c',
-            'Component': '#be185d'
+            'VStack': '#3b82f6',   # 파란색
+            'HStack': '#10b981',   # 초록색  
+            'ZStack': '#f59e0b',   # 주황색
+            'Group': '#8b5cf6',    # 보라색
+            'Graph': '#ef4444',    # 빨간색
+            'SVG': '#10b981',      # 초록색
+            'Image': '#ef4444',    # 빨간색
+            'Chart': '#8b5cf6',    # 보라색
+            'Table': '#06b6d4',    # 청록색
+            'Video': '#f97316',    # 주황색
+            'Text': '#374151',     # 회색
+            'Component': '#ec4899' # 분홍색
         }
+    
+    def _calculate_optimal_bounds(self, layout_functions: List[Dict[str, Any]], elements_metadata: Dict[str, Dict[str, Any]]) -> Tuple[int, int, int, int]:
+        """
+        레이아웃 함수들과 요소 메타데이터를 기반으로 최적의 시각화 영역을 계산
         
-    def _setup_korean_font(self):
-        """한글 폰트 설정"""
-        try:
-            # 시스템에서 사용 가능한 한글 폰트 찾기
-            korean_fonts = [
-                'NanumGothic',
-                'NanumBarunGothic', 
-                'Malgun Gothic',
-                'AppleGothic',
-                'Noto Sans CJK KR',
-                'DejaVu Sans'
-            ]
+        Returns:
+            (min_x, min_y, max_x, max_y): 최적 영역의 경계
+        """
+        min_x = float('inf')
+        min_y = float('inf') 
+        max_x = float('-inf')
+        max_y = float('-inf')
+        
+        # 모든 요소들의 위치를 수집
+        for func in layout_functions:
+            element_ids = func.get('elementIds', [])
             
-            available_fonts = [f.name for f in fm.fontManager.ttflist]
+            # Graph 타입인 경우 노드 좌표 사용
+            if func.get('layoutType') == 'Graph':
+                graph_info = func.get('graphInfo', {})
+                nodes = graph_info.get('nodes', [])
+                for node in nodes:
+                    x, y = node.get('x', 0), node.get('y', 0)
+                    # 노드 크기 고려 (반지름 20 + 여백)
+                    min_x = min(min_x, x - 40)
+                    min_y = min(min_y, y - 40)
+                    max_x = max(max_x, x + 40)
+                    max_y = max(max_y, y + 40)
             
-            for font_name in korean_fonts:
-                if font_name in available_fonts:
-                    plt.rcParams['font.family'] = font_name
-                    print(f"Using Korean font: {font_name}")
-                    return
-            
-            # 폰트를 찾지 못한 경우 기본 설정
-            plt.rcParams['font.family'] = 'DejaVu Sans'
-            plt.rcParams['axes.unicode_minus'] = False
-            print("Korean font not found, using default font")
-            
-        except Exception as e:
-            print(f"Font setup error: {e}")
-            plt.rcParams['font.family'] = 'DejaVu Sans'
-            plt.rcParams['axes.unicode_minus'] = False
+            # 일반 요소들의 경우
+            for elem_id in element_ids:
+                if elem_id in elements_metadata:
+                    metadata = elements_metadata[elem_id]
+                    x, y, w, h = metadata['x'], metadata['y'], metadata['w'], metadata['h']
+                    
+                    min_x = min(min_x, x)
+                    min_y = min(min_y, y)
+                    max_x = max(max_x, x + w)
+                    max_y = max(max_y, y + h)
+        
+        # 유효하지 않은 경우 기본값 반환
+        if min_x == float('inf'):
+            return 0, 0, self.width, self.height
+        
+        # 여백 추가 (10%)
+        padding_x = max(50, (max_x - min_x) * 0.1)
+        padding_y = max(50, (max_y - min_y) * 0.1)
+        
+        min_x = max(0, min_x - padding_x)
+        min_y = max(0, min_y - padding_y)
+        max_x = max_x + padding_x
+        max_y = max_y + padding_y
+        
+        print(f"Optimal bounds calculated: ({min_x:.0f}, {min_y:.0f}) to ({max_x:.0f}, {max_y:.0f})")
+        return int(min_x), int(min_y), int(max_x), int(max_y)
 
-    def create_figure(self, title="Structured Content Visualization", background_image_path=None):
+    def create_figure(self, title="Structured Content Visualization", background_image_path=None, layout_functions=None, elements_metadata=None):
         """시각화를 위한 matplotlib figure 생성"""
+        # 최적 영역 계산 (레이아웃 함수가 제공된 경우)
+        if layout_functions and elements_metadata:
+            min_x, min_y, max_x, max_y = self._calculate_optimal_bounds(layout_functions, elements_metadata)
+            # 계산된 영역으로 캔버스 크기 업데이트
+            self.width = max_x - min_x
+            self.height = max_y - min_y
+            self.offset_x = min_x
+            self.offset_y = min_y
+        else:
+            # 기본값 사용
+            self.offset_x = 0
+            self.offset_y = 0
+        
         self.fig, self.ax = plt.subplots(1, 1, figsize=(
             self.width * self.scale_factor / 100, 
             self.height * self.scale_factor / 100
         ))
         
-        self.ax.set_xlim(0, self.width)
-        self.ax.set_ylim(0, self.height)
+        # 좌표 범위 설정 (오프셋 적용)
+        self.ax.set_xlim(self.offset_x, self.offset_x + self.width)
+        self.ax.set_ylim(self.offset_y, self.offset_y + self.height)
         self.ax.invert_yaxis()  # Y축 뒤집기 (웹 좌표계와 맞추기)
         self.ax.set_aspect('equal')
         
@@ -239,9 +287,9 @@ class StructuredContentVisualizer:
         
         self.create_figure("Layout Functions Visualization", background_image_path)
         
-        # 요소 메타데이터를 시각화 (투명도 높게)
-        for elem_id, metadata in elements_metadata.items():
-            self._draw_element_from_metadata(elem_id, metadata, alpha=0.3)
+        # 요소 메타데이터를 시각화 (투명도 높게) - 비활성화됨
+        # for elem_id, metadata in elements_metadata.items():
+        #     self._draw_element_from_metadata(elem_id, metadata, alpha=0.3)
         
         # 레이아웃 함수들을 시각화
         for i, func in enumerate(layout_functions):
@@ -296,66 +344,69 @@ class StructuredContentVisualizer:
         return element.get('type') in ['Text', 'SVG', 'Image', 'Chart', 'Table', 'Video', 'Component']
     
     def _draw_element(self, element: Dict[str, Any], alpha: float = 0.6):
-        """개별 요소를 그리기"""
+        """개별 요소를 그리기 - 박스 그리기 기능 비활성화"""
         if 'position' not in element:
             return
         
-        pos = element['position']
-        x, y = pos['x'], pos['y']
-        w, h = pos.get('width', 100), pos.get('height', 30)
+        # 기본 요소 박스 그리기 기능 제거됨
+        # 아래 코드들은 모두 주석처리되어 박스를 그리지 않음
         
-        element_type = element.get('type', 'Unknown')
-        color = self.layout_colors.get(element_type, '#6b7280')
-        
-        # 요소 박스 그리기 (알파 블렌딩 적용)
-        if element_type == 'Text':
-            # 텍스트 요소는 흰색 배경에 테두리 (투명도 적용)
-            rect = FancyBboxPatch(
-                (x, y), w, h,
-                boxstyle="round,pad=2",
-                facecolor='white',
-                edgecolor=color,
-                linewidth=2,
-                alpha=alpha
-            )
-            self.ax.add_patch(rect)
-            
-            # 텍스트 내용 표시
-            content = element.get('content', '')
-            if content:
-                # 텍스트가 박스 안에 들어가도록 자르기
-                max_chars = max(1, int(w / 10))  # 한글 고려하여 조정
-                display_text = content[:max_chars] + '...' if len(content) > max_chars else content
-                self.ax.text(x + w/2, y + h/2, display_text, 
-                           ha='center', va='center', fontsize=9, color=color, fontweight='bold')
-        
-        elif element_type == 'SVG':
-            # SVG 요소는 연한 배경
-            rect = FancyBboxPatch(
-                (x, y), w, h,
-                boxstyle="round,pad=2",
-                facecolor=color,
-                alpha=alpha * 0.5,
-                edgecolor=color,
-                linewidth=2
-            )
-            self.ax.add_patch(rect)
-            self.ax.text(x + w/2, y + h/2, 'SVG', 
-                        ha='center', va='center', fontsize=9, color=color, fontweight='bold')
-        
-        else:
-            # 기타 요소들
-            rect = FancyBboxPatch(
-                (x, y), w, h,
-                boxstyle="round,pad=2",
-                facecolor=color,
-                alpha=alpha * 0.7,
-                edgecolor=color,
-                linewidth=2
-            )
-            self.ax.add_patch(rect)
-            self.ax.text(x + w/2, y + h/2, element_type, 
-                        ha='center', va='center', fontsize=9, color='white', fontweight='bold')
+        # pos = element['position']
+        # x, y = pos['x'], pos['y']
+        # w, h = pos.get('width', 100), pos.get('height', 30)
+        # 
+        # element_type = element.get('type', 'Unknown')
+        # color = self.layout_colors.get(element_type, '#6b7280')
+        # 
+        # # 요소 박스 그리기 (알파 블렌딩 적용) - 비활성화
+        # if element_type == 'Text':
+        #     # 텍스트 요소는 흰색 배경에 테두리 (투명도 적용)
+        #     rect = FancyBboxPatch(
+        #         (x, y), w, h,
+        #         boxstyle="round,pad=2",
+        #         facecolor='white',
+        #         edgecolor=color,
+        #         linewidth=2,
+        #         alpha=alpha
+        #     )
+        #     self.ax.add_patch(rect)
+        #     
+        #     # 텍스트 내용 표시
+        #     content = element.get('content', '')
+        #     if content:
+        #         # 텍스트가 박스 안에 들어가도록 자르기
+        #         max_chars = max(1, int(w / 10))  # 한글 고려하여 조정
+        #         display_text = content[:max_chars] + '...' if len(content) > max_chars else content
+        #         self.ax.text(x + w/2, y + h/2, display_text, 
+        #                    ha='center', va='center', fontsize=9, color=color, fontweight='bold')
+        # 
+        # elif element_type == 'SVG':
+        #     # SVG 요소는 연한 배경
+        #     rect = FancyBboxPatch(
+        #         (x, y), w, h,
+        #         boxstyle="round,pad=2",
+        #         facecolor=color,
+        #         alpha=alpha * 0.5,
+        #         edgecolor=color,
+        #         linewidth=2
+        #     )
+        #     self.ax.add_patch(rect)
+        #     self.ax.text(x + w/2, y + h/2, 'SVG', 
+        #                 ha='center', va='center', fontsize=9, color=color, fontweight='bold')
+        # 
+        # else:
+        #     # 기타 요소들
+        #     rect = FancyBboxPatch(
+        #         (x, y), w, h,
+        #         boxstyle="round,pad=2",
+        #         facecolor=color,
+        #         alpha=alpha * 0.7,
+        #         edgecolor=color,
+        #         linewidth=2
+        #     )
+        #     self.ax.add_patch(rect)
+        #     self.ax.text(x + w/2, y + h/2, element_type, 
+        #                 ha='center', va='center', fontsize=9, color='white', fontweight='bold')
     
     def _draw_layout_container(self, container: Dict[str, Any], alpha: float = 0.8):
         """레이아웃 컨테이너를 그리기"""
@@ -405,14 +456,17 @@ class StructuredContentVisualizer:
         nodes = graph_data['nodes']
         edges = graph_data['edges']
         
+        print(f"  Drawing graph: {len(nodes)} nodes, {len(edges)} edges")
+        
         # 노드 위치 계산
         node_positions = {}
         for node in nodes:
             if 'x' in node and 'y' in node:
                 node_positions[node['id']] = (node['x'], node['y'])
+                print(f"    Node position: {node['id']} at ({node['x']}, {node['y']})")
         
-        # 엣지 그리기
-        for edge in edges:
+        # 엣지 그리기 (더 명확한 화살표와 색상)
+        for i, edge in enumerate(edges):
             from_id = edge['from']
             to_id = edge['to']
             
@@ -420,32 +474,51 @@ class StructuredContentVisualizer:
                 from_pos = node_positions[from_id]
                 to_pos = node_positions[to_id]
                 
-                # 간단한 선으로 연결
-                line = patches.ConnectionPatch(
+                print(f"    Drawing edge {i+1}: {from_id} → {to_id}")
+                
+                # 화살표로 연결 (방향성 표시) - 가시성 향상
+                arrow = patches.FancyArrowPatch(
                     from_pos, to_pos,
-                    "data", "data",
-                    arrowstyle="-",
-                    shrinkA=8, shrinkB=8,
-                    color='#888888',
-                    linewidth=2,
-                    alpha=0.7
+                    arrowstyle='->',
+                    shrinkA=22, shrinkB=22,  # 노드에서 충분히 떨어뜨리기 (노드 반지름 20 + 여백 2)
+                    color='#dc2626',  # 더 진한 빨간색
+                    linewidth=4,  # 더 굵게
+                    alpha=0.9,  # 더 선명하게
+                    mutation_scale=25,  # 화살표 크기 증가
+                    capstyle='round',
+                    zorder=100  # 다른 요소들보다 위에 그리기
                 )
-                self.ax.add_patch(line)
+                self.ax.add_patch(arrow)
         
-        # 노드 그리기
-        for node in nodes:
+        # 노드 그리기 (더 크고 명확하게)
+        for i, node in enumerate(nodes):
             if node['id'] in node_positions:
                 pos = node_positions[node['id']]
-                circle = plt.Circle(pos, 12, facecolor='#0a7', edgecolor='darkgreen', linewidth=2, alpha=0.8)
+                
+                # 노드 원 (더 크게) - 다른 요소들보다 위에
+                circle = plt.Circle(pos, 20, facecolor='#3b82f6', edgecolor='#1e40af', linewidth=3, alpha=0.95, zorder=200)
                 self.ax.add_patch(circle)
                 
-                # 노드 라벨
-                self.ax.text(pos[0], pos[1] + 20, node['id'], 
-                           ha='center', va='center', fontsize=7, fontweight='bold',
-                           bbox=dict(boxstyle="round,pad=2", facecolor='white', alpha=0.9))
+                # 노드 번호 (중앙에) - 최상위
+                self.ax.text(pos[0], pos[1], str(i+1), 
+                           ha='center', va='center', fontsize=12, color='white', fontweight='bold', zorder=300)
+                
+                # 노드 라벨 (아래쪽에) - 최상위 - 비활성화됨
+                # display_id = node['id']
+                # if len(display_id) > 10:  # ID가 너무 길면 줄이기
+                #     display_id = display_id[:8] + '...'
+                # 
+                # self.ax.text(pos[0], pos[1] + 35, display_id, 
+                #            ha='center', va='center', fontsize=9, fontweight='bold',
+                #            bbox=dict(boxstyle="round,pad=2", facecolor='white', alpha=0.95, edgecolor='#3b82f6'),
+                #            zorder=250)
+                
+                print(f"    Drew node {i+1}: {node['id']} at {pos}")
+        
+        print(f"  Graph structure drawn successfully")
     
     def _draw_element_from_metadata(self, elem_id: str, metadata: Dict[str, Any], alpha: float = 0.5):
-        """메타데이터로부터 요소 그리기"""
+        """메타데이터로부터 요소 그리기 - 박스 그리기 기능 비활성화"""
         x, y = metadata['x'], metadata['y']
         w, h = metadata['w'], metadata['h']
         
@@ -455,34 +528,37 @@ class StructuredContentVisualizer:
             y < -margin or y > self.height + margin):
             return
         
-        tag = metadata.get('tag', 'Unknown')
+        # 기본 요소 박스 그리기 기능 제거됨
+        # 아래 코드들은 모두 주석처리되어 박스를 그리지 않음
         
-        # tag가 list인 경우 첫 번째 element 사용
-        if isinstance(tag, list) and len(tag) > 0:
-            tag = tag[0]
-        elif isinstance(tag, list):
-            tag = 'Unknown'
-            
-        color = self.layout_colors.get(tag, '#6b7280')
-        
-        # 요소 박스 그리기 (투명도 적용)
-        rect = FancyBboxPatch(
-            (x, y), w, h,
-            boxstyle="round,pad=2",
-            facecolor=color,
-            alpha=alpha,
-            edgecolor=color,
-            linewidth=2
-        )
-        self.ax.add_patch(rect)
-        
-        # 레이아웃 관련 요소들만 텍스트 표시 (VStack, HStack, ZStack, Group, Graph)
-        layout_types = ['VStack', 'HStack', 'ZStack', 'Group', 'Graph']
-        if tag in layout_types:
-            # 요소 ID와 태그 표시
-            display_text = f"{elem_id}\n({tag})"
-            self.ax.text(x + w/2, y + h/2, display_text, 
-                        ha='center', va='center', fontsize=8, color='white', fontweight='bold')
+        # tag = metadata.get('tag', 'Unknown')
+        # 
+        # # tag가 list인 경우 첫 번째 element 사용
+        # if isinstance(tag, list) and len(tag) > 0:
+        #     tag = tag[0]
+        # elif isinstance(tag, list):
+        #     tag = 'Unknown'
+        #     
+        # color = self.layout_colors.get(tag, '#6b7280')
+        # 
+        # # 요소 박스 그리기 (투명도 적용) - 비활성화
+        # rect = FancyBboxPatch(
+        #     (x, y), w, h,
+        #     boxstyle="round,pad=2",
+        #     facecolor=color,
+        #     alpha=alpha,
+        #     edgecolor=color,
+        #     linewidth=2
+        # )
+        # self.ax.add_patch(rect)
+        # 
+        # # 레이아웃 관련 요소들만 텍스트 표시 (VStack, HStack, ZStack, Group, Graph)
+        # layout_types = ['VStack', 'HStack', 'ZStack', 'Group', 'Graph']
+        # if tag in layout_types:
+        #     # 요소 ID와 태그 표시
+        #     display_text = f"{elem_id}\n({tag})"
+        #     self.ax.text(x + w/2, y + h/2, display_text, 
+        #                 ha='center', va='center', fontsize=8, color='white', fontweight='bold')
     
     def _draw_layout_function(self, func: Dict[str, Any], elements_metadata: Dict[str, Dict[str, Any]], index: int, all_layout_functions: List[Dict[str, Any]]):
         """레이아웃 함수를 시각화"""
@@ -494,25 +570,59 @@ class StructuredContentVisualizer:
         
         # Graph 타입인 경우 특별 처리
         if layout_type == 'Graph':
-            # 노드와 엣지 정보 추출
-            nodes = func.get('nodes', [])
-            edges = func.get('edges', [])
+            # graphInfo에서 노드와 엣지 정보 추출
+            graph_info = func.get('graphInfo', {})
+            nodes = graph_info.get('nodes', [])
+            edges = graph_info.get('edges', [])
+            
+            print(f"  Graph visualization: {len(nodes)} nodes, {len(edges)} edges")
+            for i, node in enumerate(nodes):
+                print(f"    Node {i+1}: {node['id']} at ({node['x']}, {node['y']})")
             
             # 그래프 구조 그리기
-            graph_data = {
-                'nodes': nodes,
-                'edges': edges
-            }
-            self._draw_graph_structure(graph_data)
-            
-            # 함수 라벨 추가
             if nodes:
-                # 첫 번째 노드 위치 기준으로 라벨 배치
-                first_node = nodes[0]
-                label_text = f"F{index+1}: {layout_type}"
-                self.ax.text(first_node['x'], first_node['y'] - 30, label_text, 
+                graph_data = {
+                    'nodes': nodes,
+                    'edges': edges
+                }
+                self._draw_graph_structure(graph_data)
+                
+                # Graph 영역 주변에 작은 컨테이너 박스 그리기
+                node_xs = [node['x'] for node in nodes]
+                node_ys = [node['y'] for node in nodes]
+                
+                min_x = min(node_xs) - 35  # 노드 반지름(20) + 여백(15)
+                max_x = max(node_xs) + 35
+                min_y = min(node_ys) - 45  # 노드 반지름(20) + 라벨 여백(25)
+                max_y = max(node_ys) + 45
+                
+                # 작은 컨테이너 박스 (점선으로 눈에 덜 띄게)
+                color = self.layout_colors.get(layout_type, '#ef4444')
+                
+                rect = patches.Rectangle(
+                    (min_x, min_y), max_x - min_x, max_y - min_y,
+                    linewidth=1,
+                    edgecolor=color,
+                    facecolor='none',
+                    linestyle='--',  # 점선
+                    alpha=0.6
+                )
+                self.ax.add_patch(rect)
+                
+                # 함수 라벨 - 컨테이너 상단에 작게 배치
+                avg_x = (min_x + max_x) / 2
+                label_text = f"F{index+1}: {graph_info.get('pattern', 'unknown').upper()}"
+                
+                self.ax.text(avg_x, min_y - 10, label_text, 
                             fontsize=8, color='white', fontweight='bold',
-                            bbox=dict(boxstyle="round,pad=1", facecolor='#0a7', alpha=0.9))
+                            bbox=dict(boxstyle="round,pad=2", facecolor=color, alpha=0.9),
+                            ha='center', va='center', zorder=250)
+                
+                print(f"  Graph container: ({min_x:.1f}, {min_y:.1f}) to ({max_x:.1f}, {max_y:.1f})")
+                print(f"  Graph label placed at ({avg_x:.1f}, {min_y - 10:.1f})")
+            else:
+                print(f"  No nodes found for Graph layout function")
+            
             return
         
         # 너무 벗어나는 요소 제외를 위한 margin 설정
@@ -564,17 +674,34 @@ class StructuredContentVisualizer:
         max_x = max(pos[0] + pos[2] for pos in positions)
         max_y = max(pos[1] + pos[3] for pos in positions)
         
-        # 레이아웃 컨테이너 그리기 (패딩 최소화)
-        color = self.layout_colors.get(layout_type, '#6b7280')
-        padding = 1  # 패딩을 3에서 1로 더 줄임
+        # Graph가 포함된 경우 컨테이너 박스를 더 조심스럽게 그리기
+        has_graph_in_elements = self._check_for_graph_in_elements(expanded_element_ids, all_layout_functions)
         
-        rect = patches.Rectangle(
-            (min_x - padding, min_y - padding), max_x - min_x + padding * 2, max_y - min_y + padding * 2,
-            linewidth=1.5,  # 선 두께도 2에서 1.5로 더 줄임
-            edgecolor=color,
-            facecolor='none',
-            alpha=0.7  # 투명도도 0.8에서 0.7로 조정
-        )
+        # 레이아웃 컨테이너 그리기 (Graph가 있으면 더 조심스럽게)
+        color = self.layout_colors.get(layout_type, '#6b7280')
+        
+        if has_graph_in_elements:
+            # Graph가 포함된 경우 점선으로 덜 눈에 띄게
+            padding = 3
+            rect = patches.Rectangle(
+                (min_x - padding, min_y - padding), max_x - min_x + padding * 2, max_y - min_y + padding * 2,
+                linewidth=1,
+                edgecolor=color,
+                facecolor='none',
+                linestyle='--',  # 점선
+                alpha=0.4  # 더 투명하게
+            )
+        else:
+            # 일반적인 경우
+            padding = 1
+            rect = patches.Rectangle(
+                (min_x - padding, min_y - padding), max_x - min_x + padding * 2, max_y - min_y + padding * 2,
+                linewidth=1.5,
+                edgecolor=color,
+                facecolor='none',
+                alpha=0.7
+            )
+        
         self.ax.add_patch(rect)
         
         # 함수 라벨 추가 - 상위 구조는 오른쪽에 배치
@@ -623,6 +750,20 @@ class StructuredContentVisualizer:
                 expanded.append(elem_id)
         
         return expanded
+    
+    def _check_for_graph_in_elements(self, element_ids: List[str], all_layout_functions: List[Dict[str, Any]]) -> bool:
+        """요소들 중에 Graph 타입이 포함되어 있는지 확인"""
+        for elem_id in element_ids:
+            if elem_id.startswith('group_'):
+                # 그룹 ID인 경우 해당 함수를 찾아서 확인
+                for func in all_layout_functions:
+                    if func.get('groupId') == elem_id:
+                        if func.get('layoutType') == 'Graph':
+                            return True
+                        # 재귀적으로 하위 요소들도 확인
+                        if self._check_for_graph_in_elements(func.get('elementIds', []), all_layout_functions):
+                            return True
+        return False
     
     def _add_legend(self, has_background=False):
         """범례 추가"""
