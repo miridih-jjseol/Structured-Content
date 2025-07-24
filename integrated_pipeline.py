@@ -613,7 +613,131 @@ class IntegratedStructuredContentPipeline:
                     
                     print(f"🔍 Elements metadata count: {len(elements_metadata)}")
                     
+                    # Filter out priority 0 elements from semantic_group when frameitem exists
+                    # Check if frameitem exists
+                    frameitem_exists = any(
+                        isinstance(metadata.get('tag', ''), list) and 'FrameItem' in metadata.get('tag', [])
+                        for metadata in elements_metadata.values()
+                    )
+                    # frameitem_exists = False
+                    
+                    if frameitem_exists:
+                        print(f"🔍 FrameItem detected, filtering priority 0 elements from semantic_group...")
+                        
+                        # Calculate center point of all elements
+                        all_centers_x = []
+                        all_centers_y = []
+                        for metadata in elements_metadata.values():
+                            center_x = metadata['x'] + metadata['w'] / 2
+                            center_y = metadata['y'] + metadata['h'] / 2
+                            all_centers_x.append(center_x)
+                            all_centers_y.append(center_y)
+                        
+                        overall_center_x = sum(all_centers_x) / len(all_centers_x) if all_centers_x else 0
+                        overall_center_y = sum(all_centers_y) / len(all_centers_y) if all_centers_y else 0
+                        
+                        def should_exclude_element(elem_id):
+                            """Check if element should be excluded based on criteria"""
+                            if elem_id not in elements_metadata:
+                                return False
+                            
+                            metadata = elements_metadata[elem_id]
+                            tag = metadata.get('tag', '')
+                            priority = metadata.get('priority', 'Not_Exists')
+                            
+                            # Handle list tags
+                            if isinstance(tag, list) and len(tag) > 0:
+                                tag = tag[0]
+                            elif isinstance(tag, list):
+                                tag = 'Unknown'
+                            
+                            # Convert priority to int
+                            try:
+                                priority_int = int(priority) if priority != 'Not_Exists' else 1
+                            except (ValueError, TypeError):
+                                priority_int = 1
+                            
+                            # Check if element is in top-left position
+                            element_center_x = metadata['x'] + metadata['w'] / 2
+                            element_center_y = metadata['y'] + metadata['h'] / 2
+                            is_top_left = element_center_x < overall_center_x and element_center_y < overall_center_y
+                            
+                            # Check if element should be excluded
+                            should_exclude = (
+                                frameitem_exists and 
+                                priority_int == 0 and 
+                                tag in ['PHOTO', 'SVG', 'GENERALSVG', 'SHAPESVG'] and
+                                is_top_left
+                            )
+                            
+                            return should_exclude
+                        
+                        def filter_semantic_group(group_dict):
+                            """Recursively filter semantic_group to remove excluded elements"""
+                            filtered_group = {}
+                            
+                            for key, value in group_dict.items():
+                                if value is None:
+                                    # This is a leaf element
+                                    if should_exclude_element(key):
+                                        print(f"  Excluding element {key} from semantic_group")
+                                    else:
+                                        filtered_group[key] = value
+                                elif isinstance(value, dict):
+                                    # This is a nested group
+                                    filtered_subgroup = filter_semantic_group(value)
+                                    if filtered_subgroup:  # Only include non-empty subgroups
+                                        filtered_group[key] = filtered_subgroup
+                                else:
+                                    # Keep other types as is
+                                    filtered_group[key] = value
+                            
+                            return filtered_group
+                        
+                        # Filter semantic_group and track excluded elements
+                        excluded_element_ids = set()
+                        
+                        def filter_semantic_group_with_tracking(group_dict):
+                            """Recursively filter semantic_group and track excluded element IDs"""
+                            filtered_group = {}
+                            
+                            for key, value in group_dict.items():
+                                if value is None:
+                                    # This is a leaf element
+                                    if should_exclude_element(key):
+                                        print(f"  Excluding element {key} from semantic_group")
+                                        excluded_element_ids.add(key)
+                                    else:
+                                        filtered_group[key] = value
+                                elif isinstance(value, dict):
+                                    # This is a nested group
+                                    filtered_subgroup = filter_semantic_group_with_tracking(value)
+                                    if filtered_subgroup:  # Only include non-empty subgroups
+                                        filtered_group[key] = filtered_subgroup
+                                else:
+                                    # Keep other types as is
+                                    filtered_group[key] = value
+                            
+                            return filtered_group
+                        
+                        # Filter semantic_group
+                        original_count = sum(1 for v in semantic_group.values() if v is None)
+                        semantic_group = filter_semantic_group_with_tracking(semantic_group)
+                        filtered_count = sum(1 for v in semantic_group.values() if v is None)
+                        
+                        # Filter elements_metadata to remove excluded elements
+                        original_metadata_count = len(elements_metadata)
+                        for excluded_id in excluded_element_ids:
+                            if excluded_id in elements_metadata:
+                                del elements_metadata[excluded_id]
+                        filtered_metadata_count = len(elements_metadata)
+                        
+                        print(f"🔍 Semantic group elements: {original_count} -> {filtered_count}")
+                        print(f"🔍 Elements metadata: {original_metadata_count} -> {filtered_metadata_count}")
+                        print(f"🔍 Excluded elements: {len(excluded_element_ids)}")
+                    
                     # Convert semantic group to layout functions
+                    
                     layout_functions = semanticGroup2LayoutFunction(semantic_group, elements_metadata)
                     
                     print(f"✅ Successfully converted to layout functions")

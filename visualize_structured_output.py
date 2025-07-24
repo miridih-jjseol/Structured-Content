@@ -11,6 +11,12 @@ import glob
 from PIL import Image
 from semanticGroup2StructuredOutput import semanticGroup2StructuredOutput, semanticGroup2LayoutFunction
 import platform
+import warnings
+import logging
+
+# matplotlib 폰트 경고 제거
+warnings.filterwarnings('ignore', category=UserWarning, module='matplotlib.font_manager')
+logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)
 
 class StructuredContentVisualizer:
     def __init__(self, width=1920, height=1080, scale_factor=0.4):
@@ -28,14 +34,14 @@ class StructuredContentVisualizer:
         self.fig = None
         self.ax = None
         
-        # 한글 폰트 설정
+        # 한글 폰트 설정 (안전한 폰트만 사용)
         plt.rcParams['font.family'] = ['DejaVu Sans', 'SimHei', 'Malgun Gothic', 'Apple Gothic']
         if platform.system() == 'Windows':
             plt.rcParams['font.family'] = ['Malgun Gothic', 'DejaVu Sans']
         elif platform.system() == 'Darwin':  # macOS
             plt.rcParams['font.family'] = ['Apple Gothic', 'DejaVu Sans']
         else:  # Linux
-            plt.rcParams['font.family'] = ['DejaVu Sans', 'Liberation Sans']
+            plt.rcParams['font.family'] = ['DejaVu Sans', 'sans-serif']
             
         # 마이너스 기호 깨짐 방지
         plt.rcParams['axes.unicode_minus'] = False

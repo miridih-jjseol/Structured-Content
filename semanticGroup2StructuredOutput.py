@@ -1,5 +1,5 @@
 import json
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple, Protocol
 from dataclasses import dataclass
 from enum import Enum
 import math
@@ -12,6 +12,14 @@ class LayoutType(Enum):
     ZSTACK = "ZStack"
     GROUP = "Group"
     GRAPH = "Graph"
+
+class LayoutElement(Protocol):
+    """Layout 계산에 필요한 공통 속성을 정의하는 Protocol"""
+    tbpe_id: str
+    x: int
+    y: int
+    w: int
+    h: int
 
 @dataclass
 class Position:
@@ -30,6 +38,16 @@ class ElementMetadata:
     w: int
     h: int
     priority: str
+
+@dataclass 
+class GroupMetadata:
+    tag: str
+    tbpe_id: str
+    x: int
+    y: int
+    w: int
+    h: int
+    element_tags: List[str]  # 구성하는 element들의 tag 정보
 
 @dataclass
 class BaseElement:
@@ -64,19 +82,25 @@ class ZStackElement(BaseElement):
         if self.type == "":
             self.type = "ZStack"
 
-def calculate_group_bounds(elements: List[ElementMetadata]) -> Tuple[int, int, int, int]:
+def calculate_group_bounds(elements: List[LayoutElement]) -> Tuple[int, int, int, int]:
     """그룹 내 요소들의 전체 경계를 계산"""
     if not elements:
         return 0, 0, 0, 0
     
-    min_x = min(elem.x for elem in elements)
-    min_y = min(elem.y for elem in elements)
-    max_x = max(elem.x + elem.w for elem in elements)
-    max_y = max(elem.y + elem.h for elem in elements)
+    # x, y, w, h가 모두 0인 요소들을 제외
+    valid_elements = [elem for elem in elements if not (elem.x == 0 and elem.y == 0 and elem.w == 0 and elem.h == 0)]
+    
+    if not valid_elements:
+        return 0, 0, 0, 0
+    
+    min_x = min(elem.x for elem in valid_elements)
+    min_y = min(elem.y for elem in valid_elements)
+    max_x = max(elem.x + elem.w for elem in valid_elements)
+    max_y = max(elem.y + elem.h for elem in valid_elements)
     
     return min_x, min_y, max_x - min_x, max_y - min_y
 
-def check_overlap(elem1: ElementMetadata, elem2: ElementMetadata, tolerance: int = 5) -> bool:
+def check_overlap(elem1: LayoutElement, elem2: LayoutElement, tolerance: int = 5) -> bool:
     """두 요소가 겹치는지 확인"""
     # 사각형 겹침 감지
     return not (elem1.x + elem1.w <= elem2.x + tolerance or 
@@ -84,7 +108,7 @@ def check_overlap(elem1: ElementMetadata, elem2: ElementMetadata, tolerance: int
                 elem1.y + elem1.h <= elem2.y + tolerance or 
                 elem2.y + elem2.h <= elem1.y + tolerance)
 
-def find_overlapping_groups(elements: List[ElementMetadata]) -> List[List[ElementMetadata]]:
+def find_overlapping_groups(elements: List[LayoutElement]) -> List[List[LayoutElement]]:
     """겹치는 요소들을 그룹으로 찾기"""
     if len(elements) <= 1:
         return [[elem] for elem in elements]
@@ -109,7 +133,7 @@ def find_overlapping_groups(elements: List[ElementMetadata]) -> List[List[Elemen
     
     return groups
 
-def determine_layout_type(group_elements: List[ElementMetadata], allow_graph_patterns: bool = True) -> Tuple[LayoutType, int, Optional[Dict[str, Any]]]:
+def determine_layout_type(group_elements: List[LayoutElement], allow_graph_patterns: bool = True) -> Tuple[LayoutType, int, Optional[Dict[str, Any]]]:
     """그룹의 레이아웃 타입과 간격을 결정 (mxn grid 우선, 아니면 GRAPH, 마지막에 ZStack)"""
     if len(group_elements) <= 1:
         return LayoutType.GROUP, 0, None
@@ -128,12 +152,16 @@ def determine_layout_type(group_elements: List[ElementMetadata], allow_graph_pat
     
     # 요소들을 y좌표로 그룹핑 (같은 행)
     y_groups = {}
-    tolerance = 20  # 같은 행으로 간주할 y좌표 차이 허용값
+    # width, height 각각에 대한 tolerance 계산
+    avg_width = sum(elem.w for elem in group_elements) / len(group_elements) if group_elements else 20
+    avg_height = sum(elem.h for elem in group_elements) / len(group_elements) if group_elements else 20
+    width_tolerance = int(avg_width) * 0.3  # 같은 열 판단용 (x좌표 차이)
+    height_tolerance = int(avg_height) * 0.3  # 같은 행 판단용 (y좌표 차이)
     
     for elem in group_elements:
         found_group = False
         for y_center in y_groups.keys():
-            if abs(elem.y - y_center) <= tolerance:
+            if abs(elem.y - y_center) <= height_tolerance:
                 y_groups[y_center].append(elem)
                 found_group = True
                 break
@@ -145,7 +173,7 @@ def determine_layout_type(group_elements: List[ElementMetadata], allow_graph_pat
     for elem in group_elements:
         found_group = False
         for x_center in x_groups.keys():
-            if abs(elem.x - x_center) <= tolerance:
+            if abs(elem.x - x_center) <= width_tolerance:
                 x_groups[x_center].append(elem)
                 found_group = True
                 break
@@ -243,7 +271,7 @@ def determine_layout_type(group_elements: List[ElementMetadata], allow_graph_pat
         print(f"  LAYOUT: ✅ Irregular layout, returning Group")
         return LayoutType.GROUP, 0, None
 
-def detect_graph_patterns(group_elements: List[ElementMetadata]) -> Optional[Dict[str, Any]]:
+def detect_graph_patterns(group_elements: List[LayoutElement]) -> Optional[Dict[str, Any]]:
     """6가지 그래프 패턴을 감지하고 적절한 edge 정보 반환"""
     if len(group_elements) < 2:
         return None
@@ -284,14 +312,15 @@ def detect_graph_patterns(group_elements: List[ElementMetadata]) -> Optional[Dic
     else:
         print(f"  GRAPH: ❌ POLYGON pattern failed")
     
-    # 3. 워크플로우 (순차 연결) - 먼저 시도
-    print(f"  GRAPH: Trying workflow pattern...")
-    workflow_info = detect_workflow_pattern(nodes)
-    if workflow_info:
-        print(f"  GRAPH: ✅ WORKFLOW pattern detected!")
-        return workflow_info
+    # 3. 둘러 쌓는 형태 (중심-방사형)
+    print(f"  GRAPH: Trying surrounding pattern...")
+    surrounding_info = detect_surrounding_pattern(nodes)
+    if surrounding_info:
+        print(f"  GRAPH: ✅ SURROUNDING pattern detected!")
+        return surrounding_info
     else:
-        print(f"  GRAPH: ❌ WORKFLOW pattern failed")
+        print(f"  GRAPH: ❌ SURROUNDING pattern failed")
+
     
     # 4. 조직도 (계층형 분기) - 이후 시도
     print(f"  GRAPH: Trying hierarchy pattern...")
@@ -302,14 +331,14 @@ def detect_graph_patterns(group_elements: List[ElementMetadata]) -> Optional[Dic
     else:
         print(f"  GRAPH: ❌ HIERARCHY pattern failed")
     
-    # 5. 둘러 쌓는 형태 (중심-방사형)
-    print(f"  GRAPH: Trying surrounding pattern...")
-    surrounding_info = detect_surrounding_pattern(nodes)
-    if surrounding_info:
-        print(f"  GRAPH: ✅ SURROUNDING pattern detected!")
-        return surrounding_info
+    # 5. 워크플로우 (순차 연결) - 먼저 시도
+    print(f"  GRAPH: Trying workflow pattern...")
+    workflow_info = detect_workflow_pattern(nodes)
+    if workflow_info:
+        print(f"  GRAPH: ✅ WORKFLOW pattern detected!")
+        return workflow_info
     else:
-        print(f"  GRAPH: ❌ SURROUNDING pattern failed")
+        print(f"  GRAPH: ❌ WORKFLOW pattern failed")
     
     # 6. 흐름 (대각선)
     print(f"  GRAPH: Trying flow pattern...")
@@ -328,9 +357,11 @@ def detect_surrounding_pattern(nodes: List[Dict]) -> Optional[Dict[str, Any]]:
     if len(nodes) < 3:
         return None
     
-    # 중심점 후보들을 찾기 (다른 요소들로부터의 평균 거리가 가장 균등한 요소)
+    print(f"  SURROUNDING: Checking {len(nodes)} nodes...")
+    
+    # 중심점 후보들을 찾기 (다른 요소들로부터의 평균 거리가 가장 가까운 요소)
     center_candidate = None
-    min_distance_variance = float('inf')
+    min_average_distance = float('inf')
     
     for potential_center in nodes:
         distances = []
@@ -343,63 +374,175 @@ def detect_surrounding_pattern(nodes: List[Dict]) -> Optional[Dict[str, Any]]:
                 distances.append(dist)
         
         if distances:
-            variance = sum((d - sum(distances)/len(distances))**2 for d in distances) / len(distances)
-            if variance < min_distance_variance:
-                min_distance_variance = variance
+            average_distance = sum(distances) / len(distances)
+            if average_distance < min_average_distance:
+                min_average_distance = average_distance
                 center_candidate = potential_center
     
     if not center_candidate:
+        print(f"  SURROUNDING: No center candidate found")
         return None
     
-    # 크기가 비슷한지 확인 (둘러싸는 요소들)
+    print(f"  SURROUNDING: Center candidate: {center_candidate['id']} at ({center_candidate['center_x']}, {center_candidate['center_y']})")
+    
+    # 둘러싸는 노드들
     surrounding_nodes = [n for n in nodes if n['id'] != center_candidate['id']]
     if len(surrounding_nodes) < 2:
+        print(f"  SURROUNDING: Not enough surrounding nodes ({len(surrounding_nodes)} < 2)")
         return None
     
-    # 크기 유사성 검사
+    # 1. 중심에서 둘러싸는 노드들까지의 거리 유사성 검사
+    distances_from_center = []
+    for node in surrounding_nodes:
+        dist = math.sqrt(
+            (center_candidate['center_x'] - node['center_x'])**2 + 
+            (center_candidate['center_y'] - node['center_y'])**2
+        )
+        distances_from_center.append(dist)
+    
+    avg_distance = sum(distances_from_center) / len(distances_from_center)
+    distance_variance = sum((d - avg_distance)**2 for d in distances_from_center) / len(distances_from_center)
+    distance_std = math.sqrt(distance_variance)
+    
+    # 거리 편차가 평균의 10% 이내인지 확인
+    is_similar_distance = distance_std < avg_distance * 0.1
+    print(f"  SURROUNDING: Distance similarity - avg={avg_distance:.1f}, std={distance_std:.1f}, similar={is_similar_distance}")
+    
+    # 2. 360도 각도 분포 검사
+    angles = []
+    for node in surrounding_nodes:
+        angle = math.atan2(
+            node['center_y'] - center_candidate['center_y'],
+            node['center_x'] - center_candidate['center_x']
+        )
+        # 각도를 0~2π 범위로 정규화
+        if angle < 0:
+            angle += 2 * math.pi
+        angles.append(angle)
+    
+    # 각도를 정렬
+    angles.sort()
+    
+    # 각도 간격 계산 (surrounding pattern은 n-1개의 연속 간격만 계산)
+    angle_gaps = []
+    for i in range(len(angles) - 1):  # n-1개의 연속 간격만 계산
+        current_angle = angles[i]
+        next_angle = angles[i + 1]
+        gap = next_angle - current_angle
+        if gap < 0:
+            gap += 2 * math.pi
+        angle_gaps.append(gap)
+    
+    print(f"  SURROUNDING: Calculated {len(angle_gaps)} angle gaps for {len(angles)} nodes")
+    
+    # 각도 간격의 균일성 확인
+    # expected_angle_gap = 2 * math.pi / len(surrounding_nodes)
+    # avg_angle_gap = sum(angle_gaps) / len(angle_gaps)
+    # angle_gap_variance = sum((gap - avg_angle_gap)**2 for gap in angle_gaps) / len(angle_gaps)
+    # angle_gap_std = math.sqrt(angle_gap_variance)
+    
+    # 각도 간격이 예상값의 40% 이내로 균일한지 확인 (더 관대하게)
+    # angle_uniformity = angle_gap_std / expected_angle_gap if expected_angle_gap > 0 else float('inf')
+    # is_uniform_angles = angle_uniformity < 0.4
+    
+    # print(f"  SURROUNDING: Angle uniformity - expected_gap={math.degrees(expected_angle_gap):.1f}°, uniformity={angle_uniformity:.3f}, uniform={is_uniform_angles}")
+    
+    # 크기 유사성 검사 (기존 코드 유지하되 더 관대하게)
     areas = [n['width'] * n['height'] for n in surrounding_nodes]
     avg_area = sum(areas) / len(areas)
     size_variance = sum((area - avg_area)**2 for area in areas) / len(areas)
     
-    # 크기 차이가 크면 둘러싸는 패턴이 아님
-    if size_variance > avg_area * 0.5:  # 50% 이상 차이나면 제외
+    # 크기 차이가 50% 이상 차이나면 제외 
+    is_similar_size = size_variance <= avg_area * 0.5
+    print(f"  SURROUNDING: Size similarity - avg_area={avg_area:.0f}, variance={size_variance:.0f}, similar={is_similar_size}")
+    
+    # 구성 유사성 검사 - surrounding node들이 같은 구성을 가지는지 확인
+    surrounding_compositions = []
+    for node in surrounding_nodes:
+        elem = node['elem']
+        if hasattr(elem, 'element_tags'):
+            # GroupMetadata인 경우 - element_tags를 정렬하여 비교
+            composition = tuple(sorted(elem.element_tags))
+        elif hasattr(elem, 'tag'):
+            # ElementMetadata인 경우 - tag를 사용
+            composition = (elem.tag,)
+        else:
+            # 기타 경우 - tbpe_id에서 tag 추출
+            tag = elem.tbpe_id.split('_')[0] if '_' in elem.tbpe_id else elem.tbpe_id
+            composition = (tag,)
+        surrounding_compositions.append(composition)
+    
+    # 모든 surrounding node들이 같은 구성을 가지는지 확인
+    unique_compositions = set(surrounding_compositions)
+    is_similar_composition = len(unique_compositions) == 1
+    
+    print(f"  SURROUNDING: Composition similarity - compositions={surrounding_compositions}, similar={is_similar_composition}")
+    
+    # 중심 노드가 주변 노드들과 구별되는 특성을 가지는지 검사
+    center_area = center_candidate['width'] * center_candidate['height']
+    center_is_different_size = abs(center_area - avg_area) > avg_area * 0.1  # 중심 노드가 평균보다 10% 이상 다름
+    
+    # 중심 노드의 크기 비율 (가로세로비) 검사  
+    center_aspect_ratio = center_candidate['width'] / center_candidate['height'] if center_candidate['height'] > 0 else 1
+    surrounding_aspect_ratios = [n['width'] / n['height'] if n['height'] > 0 else 1 for n in surrounding_nodes]
+    avg_surrounding_aspect = sum(surrounding_aspect_ratios) / len(surrounding_aspect_ratios)
+    center_has_different_aspect = abs(center_aspect_ratio - avg_surrounding_aspect) > 0.1  # 가로세로비가 0.1 이상 차이
+    
+    # ID prefix 검사 - 중심 노드와 주변 노드들의 ID prefix가 다른지 확인
+    def extract_id_prefix(node_id):
+        # 숫자가 나오기 전까지의 문자열을 prefix로 추출
+        import re
+        match = re.match(r'^([^\d]*)', str(node_id).strip())
+        return match.group(1).strip() if match else ""
+    
+    center_prefix = extract_id_prefix(center_candidate.get('id', ''))
+    surrounding_prefixes = [extract_id_prefix(node.get('id', '')) for node in surrounding_nodes]
+    center_has_different_id_prefix = center_prefix and all(center_prefix != prefix for prefix in surrounding_prefixes if prefix)
+    
+    # 중심 노드가 구별되는 특성을 가지는지 종합 판단
+    center_is_distinctive = center_is_different_size or center_has_different_aspect or center_has_different_id_prefix
+    
+    print(f"  SURROUNDING: Center distinctiveness check:")
+    print(f"    - Center area: {center_area:.0f} vs avg surrounding: {avg_area:.0f}")
+    print(f"    - Center different size: {center_is_different_size}")
+    print(f"    - Center aspect ratio: {center_aspect_ratio:.2f} vs avg surrounding: {avg_surrounding_aspect:.2f}")
+    print(f"    - Center different aspect: {center_has_different_aspect}")
+    print(f"    - Center ID prefix: '{center_prefix}' vs surrounding: {surrounding_prefixes}")
+    print(f"    - Center different ID prefix: {center_has_different_id_prefix}")
+    print(f"    - Center is distinctive: {center_is_distinctive}")
+    
+    # 각도 커버리지 검사 - 주변 노드들이 적절히 분산되어 있는지 확인
+    # 전체 360도 중 실제 분포된 각도 범위 계산
+    if len(angles) >= 3:
+        angle_range = max(angles) - min(angles)
+        # 만약 가장 큰 각도와 가장 작은 각도 사이의 간격이 더 작다면 (원형 분포)
+        circular_gap = (2 * math.pi) - angle_range
+        actual_coverage = max(angle_range, circular_gap)
+        angle_coverage_ratio = actual_coverage / (2 * math.pi)
+        has_good_angle_coverage = angle_coverage_ratio >= 0.5  # 최소 180도 이상 분포
+    else:
+        angle_coverage_ratio = 1.0  # 2개 노드는 항상 최대 커버리지로 간주
+        has_good_angle_coverage = True  # 2개 노드는 항상 충분한 분포로 간주
+    
+    print(f"  SURROUNDING: Angle coverage ratio: {angle_coverage_ratio:.3f}, good coverage: {has_good_angle_coverage}")
+    
+    # 최종 판단: (거리 유사성 OR 크기 유사성 OR 구성 유사성) AND (적절한 각도 분포 OR 중심 노드 구별성)
+    # 거리, 크기, 구성 중 하나라도 유사하면서 (각도 분포가 좋거나 중심이 구별되면) surrounding 패턴으로 인정
+    is_surrounding = (is_similar_distance or is_similar_composition) and (is_similar_size or is_similar_composition) and has_good_angle_coverage  and center_is_distinctive
+    
+    print(f"  SURROUNDING: Final decision: {is_surrounding}")
+    print(f"    - Similar distance: {is_similar_distance}")
+    # print(f"    - Uniform angles: {is_uniform_angles}")
+    print(f"    - Similar size: {is_similar_size}")
+    print(f"    - Similar composition: {is_similar_composition}")
+    print(f"    - Good angle coverage: {has_good_angle_coverage}")
+    print(f"    - Center is distinctive: {center_is_distinctive}")
+    print(f"    - Decision logic: (distance OR composition) and (size OR composition) AND (coverage OR distinctive)")
+    
+    if not is_surrounding:
         return None
     
-    # 추가 조건: 명확한 행/열 구조가 있으면 surrounding이 아님
-    # y좌표로 행 그룹핑
-    y_tolerance = 50
-    y_groups = {}
-    for node in nodes:
-        placed = False
-        for y_center in y_groups.keys():
-            if abs(node['center_y'] - y_center) <= y_tolerance:
-                y_groups[y_center].append(node)
-                placed = True
-                break
-        if not placed:
-            y_groups[node['center_y']] = [node]
-    
-    # x좌표로 열 그룹핑  
-    x_groups = {}
-    for node in nodes:
-        placed = False
-        for x_center in x_groups.keys():
-            if abs(node['center_x'] - x_center) <= y_tolerance:
-                x_groups[x_center].append(node)
-                placed = True
-                break
-        if not placed:
-            x_groups[node['center_x']] = [node]
-    
-    # 명확한 행/열 구조가 있으면 surrounding이 아님
-    num_rows = len(y_groups)
-    num_cols = len(x_groups)
-    
-    # 2행 이상이고 각 행에 2개 이상 요소가 있으면 그리드/지그재그 패턴일 가능성 높음
-    if num_rows >= 2:
-        row_sizes = [len(group) for group in y_groups.values()]
-        if any(size >= 2 for size in row_sizes):
-            return None  # 그리드 패턴이므로 surrounding이 아님
+    print(f"  SURROUNDING: ✅ Pattern detected!")
     
     # 중심에서 방사형으로 edge 연결
     edges = []
@@ -408,6 +551,7 @@ def detect_surrounding_pattern(nodes: List[Dict]) -> Optional[Dict[str, Any]]:
             'from': center_candidate['id'],
             'to': node['id']
         })
+        print(f"    Edge: {center_candidate['id']} → {node['id']}")
     
     return {
         'pattern': 'surrounding',
@@ -523,14 +667,169 @@ def detect_hierarchy_pattern(nodes: List[Dict]) -> Optional[Dict[str, Any]]:
         angle_std = math.sqrt(angle_variance)
         angle_uniformity = angle_std / avg_angle_gap if avg_angle_gap > 0 else float('inf')
         
-        # 각도가 너무 균일하면 polygon일 가능성 높음
-        is_circular_arrangement = angle_uniformity < 0.5
+        # 각도가 너무 균일하면 polygon일 가능성 높음 (16.7%도 부정확하므로 15% 기준 사용)
+        is_circular_arrangement = angle_uniformity < 0.15
         
         print(f"    Circular check - angle uniformity: {angle_uniformity:.3f}, circular: {is_circular_arrangement}")
         
         if is_circular_arrangement:
             print(f"  HIERARCHY: Detected circular arrangement - likely polygon, not hierarchy")
             return None
+    
+    # 추가 조건 체크: composition과 ID prefix 유사성 검사
+    print(f"  HIERARCHY: Checking additional conditions (composition & ID similarity)...")
+    
+    # 1. Composition 유사성 검사
+    def extract_composition(node):
+        """노드에서 composition 정보 추출"""
+        node_data = node.get('elem', node)
+        if hasattr(node_data, 'element_tags'):
+            # GroupMetadata인 경우
+            return tuple(sorted(node_data.element_tags))
+        elif hasattr(node_data, 'tag'):
+            # ElementMetadata인 경우
+            return (node_data.tag,)
+        else:
+            # 기타 경우 - tbpe_id에서 tag 추출
+            tbpe_id = node_data.get('tbpe_id', '') if isinstance(node_data, dict) else getattr(node_data, 'tbpe_id', '')
+            tag = tbpe_id.split('_')[0] if '_' in tbpe_id else tbpe_id
+            return (tag,)
+    
+    # 2. ID prefix 유사성 검사
+    def extract_id_prefix(node_id):
+        """ID에서 prefix 추출 (숫자가 나오기 전까지)"""
+        import re
+        match = re.match(r'^([^\d]*)', str(node_id).strip())
+        return match.group(1).strip() if match else ""
+    
+    # 최상단 레벨(level 0)과 그 자식들(level 1) 간의 composition과 ID prefix 유사성 검사
+    composition_similarity_high = False
+    id_prefix_similarity_high = False
+    
+    if len(sorted_levels) >= 2:  # 최소 2개 레벨이 있어야 검사 가능
+        parent_level = sorted_levels[0][1]  # 최상단 레벨
+        child_level = sorted_levels[1][1]   # 그 다음 레벨
+        
+        # Parent level의 composition들
+        parent_compositions = set()
+        parent_prefixes = set()
+        for parent_node in parent_level:
+            parent_compositions.add(extract_composition(parent_node))
+            parent_prefixes.add(extract_id_prefix(parent_node.get('id', '')))
+        
+        # Child level의 composition들
+        child_compositions = set()
+        child_prefixes = set()
+        for child_node in child_level:
+            child_compositions.add(extract_composition(child_node))
+            child_prefixes.add(extract_id_prefix(child_node.get('id', '')))
+        
+        # Composition 유사성 계산
+        common_compositions = parent_compositions.intersection(child_compositions)
+        composition_overlap_ratio = len(common_compositions) / max(len(parent_compositions), len(child_compositions))
+        
+        # ID prefix 유사성 계산  
+        common_prefixes = parent_prefixes.intersection(child_prefixes)
+        prefix_overlap_ratio = len(common_prefixes) / max(len(parent_prefixes), len(child_prefixes))
+        
+        # 크기와 aspect ratio 유사성 계산
+        def extract_size_info(node):
+            """노드에서 크기 정보 추출"""
+            node_data = node.get('elem', node)
+            if isinstance(node_data, dict):
+                w = node_data.get('width', node_data.get('w', 0))
+                h = node_data.get('height', node_data.get('h', 0))
+            else:
+                w = getattr(node_data, 'w', getattr(node_data, 'width', 0))
+                h = getattr(node_data, 'h', getattr(node_data, 'height', 0))
+            
+            # aspect ratio 계산 (0으로 나누기 방지)
+            aspect_ratio = w / h if h > 0 else 1.0
+            return w, h, aspect_ratio
+        
+        # Parent level의 크기 정보들
+        parent_sizes = []
+        parent_aspects = []
+        for parent_node in parent_level:
+            w, h, aspect = extract_size_info(parent_node)
+            parent_sizes.append((w, h))
+            parent_aspects.append(aspect)
+        
+        # Child level의 크기 정보들
+        child_sizes = []
+        child_aspects = []
+        for child_node in child_level:
+            w, h, aspect = extract_size_info(child_node)
+            child_sizes.append((w, h))
+            child_aspects.append(aspect)
+        
+        # 크기 유사성 검사 (30% 이내 차이면 유사한 것으로 판단)
+        def are_sizes_similar(sizes1, sizes2, tolerance=0.3):
+            """두 크기 집합이 유사한지 확인"""
+            if not sizes1 or not sizes2:
+                return False
+            
+            avg_w1 = sum(w for w, h in sizes1) / len(sizes1)
+            avg_h1 = sum(h for w, h in sizes1) / len(sizes1)
+            avg_w2 = sum(w for w, h in sizes2) / len(sizes2)
+            avg_h2 = sum(h for w, h in sizes2) / len(sizes2)
+            
+            w_diff = abs(avg_w1 - avg_w2) / max(avg_w1, avg_w2) if max(avg_w1, avg_w2) > 0 else 0
+            h_diff = abs(avg_h1 - avg_h2) / max(avg_h1, avg_h2) if max(avg_h1, avg_h2) > 0 else 0
+            
+            return w_diff <= tolerance and h_diff <= tolerance
+        
+        # Aspect ratio 유사성 검사 (20% 이내 차이면 유사한 것으로 판단)
+        def are_aspects_similar(aspects1, aspects2, tolerance=0.2):
+            """두 aspect ratio 집합이 유사한지 확인"""
+            if not aspects1 or not aspects2:
+                return False
+            
+            avg_aspect1 = sum(aspects1) / len(aspects1)
+            avg_aspect2 = sum(aspects2) / len(aspects2)
+            
+            aspect_diff = abs(avg_aspect1 - avg_aspect2) / max(avg_aspect1, avg_aspect2) if max(avg_aspect1, avg_aspect2) > 0 else 0
+            
+            return aspect_diff <= tolerance
+        
+        size_similarity = are_sizes_similar(parent_sizes, child_sizes)
+        aspect_similarity = are_aspects_similar(parent_aspects, child_aspects)
+        
+        print(f"    Top Level (1 → 2):")
+        print(f"      Parent compositions: {parent_compositions}")
+        print(f"      Child compositions: {child_compositions}")
+        print(f"      Composition overlap: {composition_overlap_ratio:.2f}")
+        print(f"      Parent prefixes: {parent_prefixes}")
+        print(f"      Child prefixes: {child_prefixes}")
+        print(f"      Prefix overlap: {prefix_overlap_ratio:.2f}")
+        print(f"      Parent sizes: {parent_sizes}")
+        print(f"      Child sizes: {child_sizes}")
+        print(f"      Size similarity: {size_similarity}")
+        print(f"      Parent aspects: {[f'{a:.2f}' for a in parent_aspects]}")
+        print(f"      Child aspects: {[f'{a:.2f}' for a in child_aspects]}")
+        print(f"      Aspect similarity: {aspect_similarity}")
+        
+        # 높은 유사성 검출 및 크기/비율 고려
+        composition_high = composition_overlap_ratio >= 0.7
+        prefix_high = prefix_overlap_ratio >= 0.7
+        
+        # 최종 판단: (composition 또는 prefix가 유사) AND (크기와 비율도 유사)면 hierarchy 제외
+        if (composition_high or prefix_high) and (size_similarity and aspect_similarity):
+            composition_similarity_high = True
+            id_prefix_similarity_high = True
+            print(f"      → Similar content AND similar size/aspect → Not hierarchy")
+        elif composition_high or prefix_high:
+            print(f"      → Similar content BUT different size/aspect → Still hierarchy")
+        else:
+            print(f"      → Different content → Hierarchy allowed")
+    
+    print(f"  HIERARCHY: Composition similarity high: {composition_similarity_high}")
+    print(f"  HIERARCHY: ID prefix similarity high: {id_prefix_similarity_high}")
+    
+    # 조건 체크: composition이나 ID prefix가 너무 유사하면 hierarchy가 아님
+    if composition_similarity_high or id_prefix_similarity_high:
+        print(f"  HIERARCHY: ❌ Too similar composition/ID - likely workflow, not hierarchy")
+        return None
     
     print(f"  HIERARCHY: ✅ Valid branching hierarchy detected")
     
@@ -1039,7 +1338,39 @@ def detect_workflow_pattern(nodes: List[Dict]) -> Optional[Dict[str, Any]]:
     y_std = math.sqrt(y_variance)
     avg_width = sum(abs(x_sorted[i+1]['center_x'] - x_sorted[i]['center_x']) for i in range(len(x_sorted)-1)) / (len(x_sorted)-1)
     
-    is_horizontal_flow = y_std < avg_width * 0.3  # y축 편차가 x축 간격의 30% 이내
+    # 기본 조건 확인
+    is_horizontal_flow_basic = y_std < avg_width * 0.3  # y축 편차가 x축 간격의 30% 이내
+    
+    # 2레벨 구조에서 다수 노드가 가로 배치된 경우도 horizontal workflow로 인정
+    is_horizontal_flow_multilevel = False
+    if not is_horizontal_flow_basic:
+        # y좌표로 레벨 분류
+        y_tolerance = avg_width * 0.5  # x간격의 50%를 tolerance로 사용
+        y_levels = {}
+        for node in nodes:
+            placed = False
+            for level_y in y_levels.keys():
+                if abs(node['center_y'] - level_y) <= y_tolerance:
+                    y_levels[level_y].append(node)
+                    placed = True
+                    break
+            if not placed:
+                y_levels[node['center_y']] = [node]
+        
+        # 다중 레벨이고 한 레벨에 2개 이상 노드가 있으면 horizontal workflow 후보
+        if len(y_levels) >= 2:
+            level_sizes = [len(level) for level in y_levels.values()]
+            max_level_size = max(level_sizes)
+            if max_level_size >= 2:  # 한 레벨에 2개 이상
+                # 가장 큰 레벨의 y편차 확인
+                largest_level = max(y_levels.values(), key=len)
+                if len(largest_level) >= 2:
+                    level_y_variance = sum((n['center_y'] - sum(node['center_y'] for node in largest_level) / len(largest_level))**2 for n in largest_level) / len(largest_level)
+                    level_y_std = math.sqrt(level_y_variance)
+                    # 해당 레벨 내에서의 y편차가 작으면 horizontal
+                    is_horizontal_flow_multilevel = level_y_std < avg_width * 0.3
+    
+    is_horizontal_flow = is_horizontal_flow_basic or is_horizontal_flow_multilevel
     print(f"    Y-std: {y_std:.1f}, avg x-gap: {avg_width:.1f}, horizontal: {is_horizontal_flow}")
     
     if is_horizontal_flow:
@@ -1068,7 +1399,39 @@ def detect_workflow_pattern(nodes: List[Dict]) -> Optional[Dict[str, Any]]:
     x_std = math.sqrt(x_variance)
     avg_height = sum(abs(y_sorted[i+1]['center_y'] - y_sorted[i]['center_y']) for i in range(len(y_sorted)-1)) / (len(y_sorted)-1)
     
-    is_vertical_flow = x_std < avg_height * 0.3  # x축 편차가 y축 간격의 30% 이내
+    # 기본 조건 확인
+    is_vertical_flow_basic = x_std < avg_height * 0.3  # x축 편차가 y축 간격의 30% 이내
+    
+    # 2레벨 구조에서 다수 노드가 세로 배치된 경우도 vertical workflow로 인정
+    is_vertical_flow_multilevel = False
+    if not is_vertical_flow_basic:
+        # x좌표로 레벨 분류
+        x_tolerance = avg_height * 0.5  # y간격의 50%를 tolerance로 사용
+        x_levels = {}
+        for node in nodes:
+            placed = False
+            for level_x in x_levels.keys():
+                if abs(node['center_x'] - level_x) <= x_tolerance:
+                    x_levels[level_x].append(node)
+                    placed = True
+                    break
+            if not placed:
+                x_levels[node['center_x']] = [node]
+        
+        # 다중 레벨이고 한 레벨에 2개 이상 노드가 있으면 vertical workflow 후보
+        if len(x_levels) >= 2:
+            level_sizes = [len(level) for level in x_levels.values()]
+            max_level_size = max(level_sizes)
+            if max_level_size >= 2:  # 한 레벨에 2개 이상
+                # 가장 큰 레벨의 x편차 확인
+                largest_level = max(x_levels.values(), key=len)
+                if len(largest_level) >= 2:
+                    level_x_variance = sum((n['center_x'] - sum(node['center_x'] for node in largest_level) / len(largest_level))**2 for n in largest_level) / len(largest_level)
+                    level_x_std = math.sqrt(level_x_variance)
+                    # 해당 레벨 내에서의 x편차가 작으면 vertical
+                    is_vertical_flow_multilevel = level_x_std < avg_height * 0.3
+    
+    is_vertical_flow = is_vertical_flow_basic or is_vertical_flow_multilevel
     print(f"    X-std: {x_std:.1f}, avg y-gap: {avg_height:.1f}, vertical: {is_vertical_flow}")
     
     if is_vertical_flow:
@@ -1517,12 +1880,15 @@ def semanticGroup2LayoutFunction(
                         if subgroup_elements:
                             # 대표 위치 계산
                             x, y, w, h = calculate_group_bounds(subgroup_elements)
-                            representative_metadata = ElementMetadata(
+                            
+                            # 구성하는 element들의 tag 정보 수집
+                            element_tags = [elem.tag[0] if isinstance(elem.tag, list) else elem.tag for elem in subgroup_elements]
+                            
+                            representative_metadata = GroupMetadata(
                                 tag="SubGroup",
-                                text_content="",
                                 tbpe_id=f"{prefix}_{key}" if prefix else key,
                                 x=x, y=y, w=w, h=h,
-                                priority="1"
+                                element_tags=element_tags
                             )
                             subgroup_info[f"{prefix}_{key}" if prefix else key] = representative_metadata
                     elif isinstance(value, dict):
@@ -1536,7 +1902,10 @@ def semanticGroup2LayoutFunction(
             print(f"Parent Group: {parent_group_key}")
             print(f"Collected subgroups: {list(subgroup_info.keys())}")
             for sg_key, sg_meta in subgroup_info.items():
-                print(f"  {sg_key}: position=({sg_meta.x}, {sg_meta.y}, {sg_meta.w}, {sg_meta.h})")
+                element_tag_counts = {}
+                for tag in sg_meta.element_tags:
+                    element_tag_counts[tag] = element_tag_counts.get(tag, 0) + 1
+                print(f"  {sg_key}: position=({sg_meta.x}, {sg_meta.y}, {sg_meta.w}, {sg_meta.h}), elements={element_tag_counts}")
             
             # 2단계: Parent Group 전체를 재귀적으로 처리
             def process_group_recursively(group_dict, group_name_prefix=""):
