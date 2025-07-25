@@ -185,4 +185,10 @@ czgz
 data/mllm_dataset.json
 data/mllm_dataset_filtered.json
 saves/qwen2_5vl-3b/lora/test/
+saves/
 test.ipynb
+
+grid_error.json
+labelling_error.json
+parent_id_error.json
+tbpe_error.json

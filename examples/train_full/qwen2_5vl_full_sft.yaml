@@ -1,5 +1,5 @@
 ### model
-model_name_or_path: Qwen/Qwen2.5-VL-7B-Instruct
+model_name_or_path: Qwen/Qwen2.5-VL-3B-Instruct
 image_max_pixels: 262144
 video_max_pixels: 16384
 trust_remote_code: true
@@ -14,28 +14,30 @@ freeze_language_model: false
 deepspeed: examples/deepspeed/ds_z3_config.json
 
 ### dataset
-dataset: mllm_demo,identity,alpaca_en_demo
+dataset: mllm_dataset #,identity,alpaca_en_demo
 template: qwen2_vl
-cutoff_len: 2048
-max_samples: 1000
+cutoff_len: 15000
+max_samples: 1000000
 overwrite_cache: true
 preprocessing_num_workers: 16
 dataloader_num_workers: 4
 
 ### output
-output_dir: saves/qwen2_5vl-7b/full/sft
+output_dir: saves/qwen2_5vl-3b/full/version020
 logging_steps: 10
-save_steps: 500
+save_steps: 2000
 plot_loss: true
 overwrite_output_dir: true
-save_only_model: false
-report_to: none  # choices: [none, wandb, tensorboard, swanlab, mlflow]
+save_strategy: steps #
+metric_for_best_model: loss #
+report_to: wandb
+run_name: version020_full
 
 ### train
-per_device_train_batch_size: 1
-gradient_accumulation_steps: 2
+per_device_train_batch_size: 2 #1
+gradient_accumulation_steps: 4 #2
 learning_rate: 1.0e-5
-num_train_epochs: 3.0
+num_train_epochs: 5.0
 lr_scheduler_type: cosine
 warmup_ratio: 0.1
 bf16: true
@@ -43,7 +45,10 @@ ddp_timeout: 180000000
 resume_from_checkpoint: null
 
 ### eval
-# val_size: 0.1
-# per_device_eval_batch_size: 1
-# eval_strategy: steps
-# eval_steps: 500
+eval_dataset: mllm_eval_dataset
+per_device_eval_batch_size: 1
+eval_strategy: steps
+eval_steps: 100
+do_predict: false
+predict_with_generate: false
+

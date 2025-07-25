@@ -512,7 +512,9 @@ def xml_to_mllm_converter(xml_path,img_path=None):
         if type(tbpe_id) == list:
             tbpe_id = tbpe_id[0]
         #keys = ['tag', 'is_text', 'text_content', 'tbpe_id', 'resource_key', 'left', 'top', 'element_width', 'element_height', 'rotation', 'opacity', 'priority', 'text_align', 'font_size', 'font_type', 'font_color', 'vertical_align']
-        keys = ['tag', 'text_content', 'tbpe_id','left', 'top', 'element_width', 'element_height', 'priority']
+        # Version020 keys = ['tag', 'text_content', 'tbpe_id','left', 'top', 'element_width', 'element_height', 'priority']
+        # Version030
+        keys = ['tag', 'text_content','left', 'top', 'element_width', 'element_height', 'priority','font_size']#
         metadata = {}
         for key in keys:
             value = elem_data[key]

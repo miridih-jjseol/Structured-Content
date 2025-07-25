@@ -876,7 +876,7 @@ def determine_subgroup_layout(
                 layout_type = "grid_horizontal"
                 # 행별로 정렬된 그룹 생성
                 sorted_h_groups = sorted(horizontal_groups, key=lambda g: min(y for _, _, y, _, _ in g))
-                groups = []
+                groups = []'251379'
                 for h_group in sorted_h_groups:
                     # 각 행 내에서 x좌표 순으로 정렬
                     sorted_row = sorted(h_group, key=lambda item: item[1])
